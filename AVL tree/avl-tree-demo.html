@@ -175,10 +175,6 @@
   rect.ghost-node{fill:rgba(255,183,3,.07);stroke:var(--warn);stroke-width:1.7;stroke-dasharray:5 4;rx:9}
   circle.ghost-circle{fill:none;stroke:var(--warn);stroke-width:1.3;stroke-dasharray:3 4;opacity:.6}
   text.ghost-txt{font-family:var(--mono);font-size:14px;font-weight:700;fill:#ffd479;opacity:.95;pointer-events:none}
-  g.oldghost line.ghost-edge{stroke:#8b6b2f;opacity:.4}
-  g.oldghost rect.ghost-node{stroke:#8b6b2f;opacity:.38}
-  g.oldghost circle.ghost-circle{stroke:#8b6b2f}
-  g.oldghost text.ghost-txt{fill:#c99a45;opacity:.5}
 
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:#2a3a58;border-radius:9px;border:2px solid transparent;background-clip:content-box}
@@ -210,6 +206,13 @@
         <button id="bRnd">随机插入</button>
         <button id="bUndo" title="撤销上一次操作（Ctrl+Z）">↶ 撤销</button>
         <button class="danger" id="bClear">清空</button>
+      </div>
+      <div class="group">
+        <span class="lbl">旋转演示</span>
+        <button class="small" id="rotLL" title="LL 型：左孩子的左边太高 → 对失衡结点做一次右旋">LL 右旋</button>
+        <button class="small" id="rotRR" title="RR 型：右孩子的右边太高 → 对失衡结点做一次左旋">RR 左旋</button>
+        <button class="small" id="rotLR" title="LR 型：左孩子的右边太高 → 先左旋左孩子，再右旋自己">LR 双旋</button>
+        <button class="small" id="rotRL" title="RL 型：右孩子的左边太高 → 先右旋右孩子，再左旋自己">RL 双旋</button>
       </div>
       <div class="group">
         <span class="lbl">速度</span>
@@ -255,6 +258,8 @@
             <li><kbd>空格</kbd> 播放/暂停，<kbd>←</kbd> <kbd>→</kbd> 单步</li>
             <li>点击步骤轴上的方块可跳转到任意步骤</li>
             <li>拖动画布平移，滚轮缩放，双击复位</li>
+            <li>顶部「旋转演示」四个按钮：一键演示 LL 右旋 / RR 左旋 / LR 双旋 / RL 双旋</li>
+            <li>旋转时结点会平滑滑动，虚线框是旋转前的位置，可对照看“谁上提、谁下沉”</li>
           </ul>
         </details>
       </div>
@@ -406,6 +411,37 @@ class AVL {
     })(this.root);
     return { nodes, edges, root: this.root ? this.root.id : null };
   }
+  /* 按“对象引用”找 child 挂在哪个父结点的哪一侧；child 就是根时返回 null。
+     旋转发生在递归回溯的路上，此刻 y 仍然挂在它的父结点上，所以能找到。 */
+  parentOf(child){
+    let hit = null;
+    (function walk(n){
+      if (!n || hit) return;
+      if (n.left === child) hit = { p:n, side:'L' };
+      else if (n.right === child) hit = { p:n, side:'R' };
+      else { walk(n.left); walk(n.right); }
+    })(this.root);
+    return hit;
+  }
+  /* 把 sub 临时挂到 oldNode 原来的位置（父结点稍后才会认领它），
+     拍一张“整棵树”的快照后再还原。这样旋转后的画面才是完整的树，
+     而不是只剩被旋转的那棵子树。 */
+  snapshotWith(sub, oldNode){
+    const at = this.parentOf(oldNode);
+    if (!at){
+      const oldRoot = this.root;
+      this.root = sub;
+      const snap = this.snapshot();
+      this.root = oldRoot;
+      return snap;
+    }
+    const slot = at.side === 'L' ? 'left' : 'right';
+    const keep = at.p[slot];
+    at.p[slot] = sub;
+    const snap = this.snapshot();
+    at.p[slot] = keep;
+    return snap;
+  }
   find(key){ let n = this.root; while (n){ if (key === n.key) return n; n = key < n.key ? n.left : n.right; } return null; }
   inorder(){ const out = []; (function w(n){ if (!n) return; w(n.left); out.push(n.key); w(n.right); })(this.root); return out; }
 
@@ -533,7 +569,7 @@ class AVL {
     if (rec) rec.rots.push({
       type:dir, y:y2.id, x:x2.id, yKey:y.key, xKey:x.key,
       t2: T2 ? T2.id : null, t2Key: T2 ? T2.key : null,
-      yOld, xOld, before, after:rec.onTurn ? rec.onTurn(x2) : null,
+      yOld, xOld, before, after: rec ? this.snapshotWith(x2, y) : null,
       hY:{ from:y.height, to:y2.height }, hX:{ from:x.height, to:x2.height }
     });
     return x2;
@@ -557,9 +593,6 @@ function idOfKey(snap, key){ const n = snap.nodes.find(x => x.key === key); retu
 
 function stepInsert(avl, key, detail){
   const rec = { preSnap: avl.snapshot(), newId:null, heightFix:[], bfLog:[], rots:[], path:[] };
-  /* 每次旋转结束后立刻为“该次旋转的子树”留一张快照（父结点稍后才认领它，
-     所以这里临时把 root 指过去拍一张，再换回来）。 */
-  rec.onTurn = sub => { const old = avl.root; avl.root = sub; const snap = avl.snapshot(); avl.root = old; return snap; };
   const res = avl.insert(key, rec);
   const S = [];
   const snapNow = () => avl.snapshot();
@@ -626,7 +659,6 @@ function stepInsert(avl, key, detail){
 
 function stepDelete(avl, key, detail){
   const rec = { preSnap: avl.snapshot(), delId:null, delKey:null, repl:[], succ:null, heightFix:[], bfLog:[], rots:[] };
-  rec.onTurn = sub => { const old = avl.root; avl.root = sub; const snap = avl.snapshot(); avl.root = old; return snap; };
   const res = avl.remove(key, rec);
   const S = [], snapNow = () => avl.snapshot();
 
@@ -789,6 +821,35 @@ function stepFind(avl, key){
   return S;
 }
 
+/* ------------------------------------------------------------- 四种旋转的预设场景
+   每个场景都先摆好一棵平衡树，再插入一个会“踩线”的值，
+   于是四种失衡型各触发一次（LR / RL 是双旋，能看到“先内后外”两步）。 */
+const ROT_DEMO = {
+  LL: { pre:[50, 30, 70, 20, 40], ins:10, name:'LL 型（左左）→ 一次右旋',
+        why:'10 插到 30 的左边：30 变成左重，50 的 BF = +2' },
+  RR: { pre:[50, 30, 70, 60, 80], ins:90, name:'RR 型（右右）→ 一次左旋',
+        why:'90 插到 80 的右边：80 变成右重，50 的 BF = −2' },
+  LR: { pre:[50, 30, 70, 20, 40], ins:35, name:'LR 型（左右）→ 先左旋、再右旋',
+        why:'35 插到 40 的左边：50 左重，而左孩子 30 却是右重' },
+  RL: { pre:[50, 30, 70, 60, 80], ins:65, name:'RL 型（右左）→ 先右旋、再左旋',
+        why:'65 插到 60 的右边：50 右重，而右孩子 70 却是左重' }
+};
+function setDetail(v){
+  detail = v;
+  const b = $('bDetail');
+  b.textContent = '旋转细分：' + (detail ? '开' : '关');
+  b.classList.toggle('on', detail);
+}
+function runRotDemo(kind){
+  const cfg = ROT_DEMO[kind];
+  if (!cfg) return;
+  pause(); demoRun = false;
+  setDetail(true);                       // 四种旋转都打开逐步解说，看得更清楚
+  resetTree(cfg.pre, `旋转演示（${cfg.name}）：先放入 ${cfg.pre.join(' / ')}，再插入 ${cfg.ins}。`);
+  log('旋转演示', `${cfg.name}　${cfg.why}`, 'rot');
+  doInsert(cfg.ins);
+}
+
 /* ------------------------------------------------------------- 演示脚本 */
 const DEMO = [
   { op:'ins', v:50, why:'空树，50 成为根。' },
@@ -811,8 +872,6 @@ let steps = [], cursor = 0, playing = false, timer = null, playToken = 0;
 let speed = 1.1, detail = true, autoCode = true, followCode = 'insert';
 let version = 1, demoRun = false, lastOp = null;
 const undoStack = [];
-/* 记录“旋转前画面”，供渲染幽灵层使用 */
-const ghostCache = { list: [], forCursor: -1 };
 
 /* ------------------------------------------------------------- 日志 */
 function log(tag, msg, cls, onClick){
@@ -834,7 +893,7 @@ function logStep(s, idx){
 /* ------------------------------------------------------------- 提交步骤 */
 function setSteps(list, op){
   steps = list; cursor = 0; version++; lastOp = op || lastOp;
-  ghostCache.list = []; ghostCache.forCursor = -1;
+  resetAnim();                                  // 新序列：不做跨操作的滑动
   buildAxis(); render();
   if (steps.length){
     log('操作', op ? op.text : '新的步骤序列', '');
@@ -883,7 +942,39 @@ function sync(container, list, keyFn, apply){
   for (const [k, node] of [...container._map]) if (!seen.has(k)){ node.remove(); container._map.delete(k); }
 }
 
-function render(){
+/* 画一条边：a = 父结点，b = 子结点，两端按半径收进，L/R 标签落在中点偏左 */
+function edgeGeom(el, a, b){
+  let dx = b.x - a.x, dy = b.y - a.y;
+  const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+  el._line.setAttribute('x1', a.x + dx * 21); el._line.setAttribute('y1', a.y + dy * 21);
+  el._line.setAttribute('x2', b.x - dx * 22); el._line.setAttribute('y2', b.y - dy * 22);
+  el._key.setAttribute('x', (a.x + b.x) / 2 - dx * 12 - 8);
+  el._key.setAttribute('y', (a.y + b.y) / 2 - dy * 12 + 4);
+}
+/* 画一个结点：圆圈 + 值 + h + BF。按插值位置反复调用，就是旋转的滑动动画 */
+function placeNode(node, item){
+  const it = item.it, x = it.x, y = it.y;
+  node._c.setAttribute('cx', x); node._c.setAttribute('cy', y); node._c.setAttribute('class', item.cls);
+  node._t.setAttribute('x', x); node._t.setAttribute('y', y);
+  node._t.setAttribute('class', item.keyCls);
+  node._t.textContent = it.n.key;
+  node._h.setAttribute('x', x); node._h.setAttribute('y', y - 28);
+  node._h.textContent = 'h=' + it.n.height;
+  const bf = it.n.bf;
+  node._b.setAttribute('x', x); node._b.setAttribute('y', y + 35);
+  node._b.textContent = 'BF=' + (bf > 0 ? '+' + bf : bf);
+  node._b.setAttribute('class', 'nodebf ' + (Math.abs(bf) > 1 ? 'bfn' : bf === 0 ? 'bf0' : 'bfp'));
+}
+
+/* 位置动画状态：prevPos 记录上一帧每个结点（按“值”索引）的位置 */
+let prevPos = new Map();
+let animToken = 0;
+const raf = (typeof requestAnimationFrame === 'function')
+  ? (fn => requestAnimationFrame(fn))
+  : (fn => setTimeout(fn, 16));
+function resetAnim(){ prevPos = new Map(); animToken++; }
+
+function render(animate){
   const svg = $('svg');
   const s = steps.length ? steps[Math.min(cursor, steps.length - 1)] : null;
   const base = s ? s.cur : avl.snapshot();
@@ -892,12 +983,10 @@ function render(){
 
   /* 幽灵层：旋转前的那幅画面（存在步骤的 ghostSnap 上，避免和 hl 混在一起） */
   const curGhost = (s && s.ghostSnap) ? { snap:s.ghostSnap, label:s.ghostLabel } : null;
-  const ghostSets = [];
-  if (curGhost) ghostSets.push({ snap:curGhost.snap, label:curGhost.label, old:false });
+  const ghostLayouts = curGhost ? [{ L: layout(curGhost.snap) }] : [];
 
   /* viewBox：保证幽灵层也完整可见 */
   let W = P.w, H = P.h;
-  const ghostLayouts = ghostSets.map(g => ({ g, L: layout(g.snap) }));
   for (const x of ghostLayouts){ W = Math.max(W, x.L.w); H = Math.max(H, x.L.h); }
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -920,7 +1009,11 @@ function render(){
   }
   for (const it of P.items){
     const id = it.n.id, c = clsOf(id);
-    nodes.push({ it, id, key:id, cls:'node ' + c, keyCls:'nodekey ' + c + (hl.mark && hl.mark.face === id ? ' face' : '') });
+    /* 注意：DOM 元素按“结点值”复用，而不是按内部 id。
+       旋转会重新生成结点对象、id 会变，但值不变；按值复用元素，
+       动画才能让同一个圆圈从旧位置平滑滑到新位置。 */
+    nodes.push({ it, id, key:'k' + it.n.key, cls:'node ' + c,
+                 keyCls:'nodekey ' + c + (hl.mark && hl.mark.face === id ? ' face' : '') });
   }
 
   /* DOM：gEdges < gGhost < gArrows < gNodes */
@@ -944,14 +1037,9 @@ function render(){
       node._key  = svgEl('text', { class:'edgekey', 'text-anchor':'middle' });
       node.append(node._line, node._key);
     }
-    let dx = e.b.x - e.a.x, dy = e.b.y - e.a.y;
-    const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
-    node._line.setAttribute('x1', e.a.x + dx * 21); node._line.setAttribute('y1', e.a.y + dy * 21);
-    node._line.setAttribute('x2', e.b.x - dx * 22); node._line.setAttribute('y2', e.b.y - dy * 22);
+    edgeGeom(node, e.a, e.b);
     node._line.setAttribute('class', e.cls);
     node._key.textContent = (e.b.n.key < e.a.n.key) ? 'L' : 'R';
-    node._key.setAttribute('x', (e.a.x + e.b.x) / 2 - dx * 12 - 8);
-    node._key.setAttribute('y', (e.a.y + e.b.y) / 2 - dy * 12 + 4);
   });
 
   /* --- 结点 --- */
@@ -963,33 +1051,22 @@ function render(){
       node._b = svgEl('text', { class:'nodebf', 'text-anchor':'middle' });
       node.append(node._c, node._t, node._h, node._b);
     }
-    const it = item.it, x = it.x, y = it.y;
-    node._c.setAttribute('cx', x); node._c.setAttribute('cy', y); node._c.setAttribute('class', item.cls);
-    node._t.setAttribute('x', x); node._t.setAttribute('y', y);
-    node._t.setAttribute('class', item.keyCls);
-    node._t.textContent = it.n.key;
-    node._h.setAttribute('x', x); node._h.setAttribute('y', y - 28);
-    node._h.textContent = 'h=' + it.n.height;
-    const bf = it.n.bf;
-    node._b.setAttribute('x', x); node._b.setAttribute('y', y + 35);
-    node._b.textContent = 'BF=' + (bf > 0 ? '+' + bf : bf);
-    node._b.setAttribute('class', 'nodebf ' + (Math.abs(bf) > 1 ? 'bfn' : bf === 0 ? 'bf0' : 'bfp'));
+    placeNode(node, item);
   });
 
   /* --- 幽灵层：旋转前的位置 --- */
   const ghosts = [];
-  for (const { g, L } of ghostLayouts){
+  if (curGhost){
+    const L = ghostLayouts[0].L;
     const qm = new Map(L.items.map(it => [it.n.id, it]));
-    for (const e of g.snap.edges){
+    for (const e of curGhost.snap.edges){
       const a = qm.get(e.from), b = qm.get(e.to);
-      if (a && b) ghosts.push({ kind:'edge', a, b, old:g.old, key:'e' + e.from + '_' + e.to });
+      if (a && b) ghosts.push({ kind:'edge', a, b, key:'e' + e.from + '_' + e.to });
     }
-    for (const it of L.items) ghosts.push({ kind:'node', it, old:g.old, key:'n' + it.n.id });
+    for (const it of L.items) ghosts.push({ kind:'node', it, key:'n' + it.n.id });
   }
   gGhost.style.display = ghosts.length ? '' : 'none';
-  gGhost.setAttribute('class', 'gGhost' + (ghosts.some(g => g.old) ? ' oldghost' : ''));
   sync(gGhost, ghosts, g => g.key, (node, g) => {
-    node.setAttribute('class', g.old ? 'oldghost' : '');
     if (g.kind === 'edge'){
       if (!node._line){
         node._line = svgEl('line', { class:'ghost-edge' });
@@ -1020,7 +1097,7 @@ function render(){
   /* --- 旋转弧线箭头：pivot y → 上提的 x --- */
   const arrows = [];
   if (curGhost && hl.rot){
-    const qm = new Map(layout(curGhost.snap).items.map(it => [it.n.id, it]));
+    const qm = new Map(ghostLayouts[0].L.items.map(it => [it.n.id, it]));
     const p1 = qm.get(hl.rot[0]), p2 = qm.get(hl.rot[1]);
     if (p1 && p2) arrows.push({ from:p1, to:p2, key:'a' + p1.n.id + p2.n.id,
       label:(hl.mark && hl.mark.rotKind) || '旋转' });
@@ -1049,6 +1126,65 @@ function render(){
     node._txt.textContent = a.label;
     node._txt2.textContent = '↑ 上提';
   });
+
+  /* ---------- 位置动画：结点/边从上一帧的位置滑到新位置 ----------
+     起点按“结点值”在 prevPos 里查（旋转前后 id 会变、值不变）；
+     新插入的结点没有历史位置，就让它从父结点处“长出来”。 */
+  const targetById = new Map(P.items.map(it => [it.n.id, { x:it.x, y:it.y }]));
+  const parentById = new Map();
+  for (const e of base.edges) parentById.set(e.to, e.from);
+  const startById = new Map(), freshKeys = new Set();
+  for (const it of P.items){
+    const prev = prevPos.get('k' + it.n.key);
+    if (prev) startById.set(it.n.id, prev);
+    else {
+      freshKeys.add('k' + it.n.key);
+      const pid = parentById.get(it.n.id);
+      startById.set(it.n.id, (pid && targetById.get(pid)) || targetById.get(it.n.id));
+    }
+  }
+  const samePos = P.items.every(it => {
+    const a = startById.get(it.n.id), b = targetById.get(it.n.id);
+    return Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5;
+  });
+  const nodeItemById = new Map(nodes.map(n => [n.id, n]));
+  const applyFrame = t => {
+    for (const it of P.items){
+      const a = startById.get(it.n.id), b = targetById.get(it.n.id);
+      it.x = a.x + (b.x - a.x) * t;
+      it.y = a.y + (b.y - a.y) * t;
+      const el = gNodes._map.get('k' + it.n.key);
+      if (!el) continue;
+      placeNode(el, nodeItemById.get(it.n.id));
+      if (freshKeys.has('k' + it.n.key)) el.style.opacity = String(Math.min(1, t * 1.7));
+    }
+    for (const e of edges){
+      const el = gEdges._map.get(e.key);
+      if (el && el._line) edgeGeom(el, e.a, e.b);
+    }
+  };
+  /* 清掉上一轮动画残留的透明度；本次新增的结点会重新淡入 */
+  for (const [k, el] of gNodes._map) if (!freshKeys.has(k)) el.style.opacity = '';
+  const dur = (animate === false || !prevPos.size || samePos)
+    ? 0 : Math.max(150, 520 / Math.max(0.6, speed));
+  const token = ++animToken;
+  const now = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  if (dur){
+    applyFrame(0);
+    const t0 = now();
+    const frame = () => {
+      if (token !== animToken) return;               // 已经被新的渲染打断
+      const k = Math.min(1, (now() - t0) / dur);
+      applyFrame(1 - Math.pow(1 - k, 3));            // easeOutCubic
+      if (k < 1) raf(frame); else applyFrame(1);
+    };
+    raf(frame);
+  } else {
+    applyFrame(1);
+  }
+  const np = new Map();
+  for (const it of P.items) np.set('k' + it.n.key, targetById.get(it.n.id));
+  prevPos = np;
 
   $('emptyTip').style.display = P.items.length ? 'none' : '';
   renderCaption(s);
@@ -1131,9 +1267,12 @@ function updateCode(s){
 /* ------------------------------------------------------------- 侧栏 */
 function updateSidebar(base, hl){
   const n = base.nodes.length, map = new Map(base.nodes.map(x => [x.id, x]));
-  $('stCount').textContent = n;
-  $('stHeight').textContent = n ? AVL.h(avl.root) : 0;
+  /* 树高取“当前画面这一棵”的高度：旋转讲解时画面是旋转前的快照，
+     若直接用 avl.root，会显示旋转之后的高度，和画面不一致。 */
   const rootN = base.nodes.find(x => x.id === base.root);
+  const hDisp = rootN ? rootN.height : 0;
+  $('stCount').textContent = n;
+  $('stHeight').textContent = n ? hDisp : 0;
   $('stRoot').textContent = rootN ? rootN.key : '—';
   $('stMin').textContent = n ? Math.ceil(Math.log2(n + 1)) : 0;
   $('stMax').textContent = n ? (1.4405 * Math.log2(n + 2) - 0.3277).toFixed(2) : 0;
@@ -1156,25 +1295,14 @@ function updateSidebar(base, hl){
     return tr;
   });
   $('stTable').innerHTML = ''; rows.forEach(r => $('stTable').append(r));
-  $('stageTag').textContent = n ? `${n} 个结点 · 树高 ${AVL.h(avl.root)}` : '空树';
+  $('stageTag').textContent = n ? `${n} 个结点 · 树高 ${hDisp}` : '空树';
 }
 
 /* ------------------------------------------------------------- 回放控制 */
 function goto(i){
   if (!steps.length) return;
   cursor = Math.max(0, Math.min(steps.length - 1, i));
-  rebuildGhostCache();
   render();
-}
-/* 幽灵层 = “上一次旋转前”的画面：由当前步骤之前的旋转步骤推导（与跳转方向无关） */
-function rebuildGhostCache(){
-  const list = [];
-  for (let k = 0; k <= cursor; k++){
-    const s = steps[k];
-    if (s.t === 'rotate' && s.rotIndex !== undefined && s.hl && s.hl.ghost)
-      list[s.rotIndex] = { snap:s.hl.ghost, at:k };
-  }
-  ghostCache.list = list;
 }
 function next(){ if (cursor < steps.length - 1) goto(cursor + 1); else pause(); }
 function prev(){ goto(cursor - 1); }
@@ -1250,7 +1378,7 @@ function resetTree(list, note){
   undoStack.length = 0; $('bUndo').disabled = true;
   for (const v of list) avl.insert(v, null);
   steps = []; cursor = 0; playing = false; version++;
-  ghostCache.list = []; buildAxis(); render(); buildCode(followCode);
+  resetAnim(); buildAxis(); render(); buildCode(followCode);
   log('系统', note || '树已重置', '');
 }
 /* 把快照还原成一棵真树 */
@@ -1347,7 +1475,7 @@ $('bUndo').addEventListener('click', () => {
   if (!undoStack.length){ log('提示', '没有可撤销的操作了。', 'warn'); return; }
   const u = undoStack.pop();
   avl.root = treeFromSnapshot(u.snap);
-  steps = []; cursor = 0; version++; ghostCache.list = [];
+  steps = []; cursor = 0; version++; resetAnim();
   buildAxis(); render();
   log('撤销', `已回退到「${u.text}」之前的状态。`, 'done');
   $('bUndo').disabled = !undoStack.length;
@@ -1358,9 +1486,7 @@ $('bNext').addEventListener('click', () => { pause(); next(); });
 $('bPrev').addEventListener('click', () => { pause(); prev(); });
 $('spd').addEventListener('input', e => { speed = parseFloat(e.target.value); });
 $('bDetail').addEventListener('click', e => {
-  detail = !detail;
-  e.currentTarget.textContent = '旋转细分：' + (detail ? '开' : '关');
-  e.currentTarget.classList.toggle('on', detail);
+  setDetail(!detail);
   log('设置', '旋转细分已' + (detail ? '开启（逐步解说旋转过程）' : '关闭（折叠为一步）'), '');
   /* 用「操作前的快照」重放同一操作来重建步骤，这样树的结点 id 与当前完全一致 */
   if (lastOp && lastOp.pre){
@@ -1373,6 +1499,10 @@ $('bDetail').addEventListener('click', e => {
     setSteps(list, lastOp);
   }
 });
+$('rotLL').addEventListener('click', () => runRotDemo('LL'));
+$('rotRR').addEventListener('click', () => runRotDemo('RR'));
+$('rotLR').addEventListener('click', () => runRotDemo('LR'));
+$('rotRL').addEventListener('click', () => runRotDemo('RL'));
 document.querySelectorAll('.codebar [data-code]').forEach(b => {
   b.addEventListener('click', () => {
     buildCode(b.dataset.code, true);            // 手动选代码 = 解锁“跟随步骤”

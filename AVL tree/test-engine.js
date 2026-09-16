@@ -212,6 +212,11 @@ console.log('== H. 重放（旋转细分开关）==');
   }
   /* 每个步骤里被高亮的 id 必须真的存在于它自己的快照里，否则界面上“高亮不到东西” */
   function highlightOk(list, label){
+    const fullN = list.length ? list[list.length - 1].cur.nodes.length : 0;
+    /* 最后一次旋转之后的画面才要求整棵树平衡：
+       双旋的第 1 步之后，外侧失衡结点本来就还是 |BF| = 2，这是对的。 */
+    let lastRot = -1;
+    for (let i = 0; i < list.length; i++) if (list[i].t === 'rotate') lastRot = i;
     for (let i = 0; i < list.length; i++){
       const s = list[i];
       if (!s.hl) s.hl = {};
@@ -232,6 +237,22 @@ console.log('== H. 重放（旋转细分开关）==');
             + ' ghost=' + (ghostIds ? [...ghostIds].join(',') : '无'));
           return label + ' 第' + i + '步旋转 id ' + id + ' 既不在当前也不在幽灵快照中';
         }
+      /* 回归检查：旋转步骤的画面必须是「整棵树」。
+         曾经的 bug 是旋转后只拍了被旋转的子树（父结点还没认领它），
+         界面上会看到整棵树突然只剩几个结点、幽灵层也跟着错位。 */
+      if (s.t === 'rotate'){
+        if (s.cur.nodes.length !== fullN)
+          return label + ' 第' + i + '步旋转画面只有 ' + s.cur.nodes.length
+               + ' 个结点，应为整棵树 ' + fullN + ' 个（旋转后不能丢结点）';
+        if (!s.cur.root || !s.cur.nodes.some(n => n.id === s.cur.root))
+          return label + ' 第' + i + '步旋转画面缺少根结点';
+        if (i === lastRot){
+          const maxBf = Math.max.apply(null, s.cur.nodes.map(n => Math.abs(n.bf)).concat([0]));
+          if (maxBf > 1) return label + ' 第' + i + '步旋转后仍有 |BF| = ' + maxBf + ' 的结点';
+        }
+        if (s.ghostSnap && s.ghostSnap.nodes.length !== fullN)
+          return label + ' 第' + i + '步幽灵层结点数 ' + s.ghostSnap.nodes.length + ' 与整棵树 ' + fullN + ' 不一致';
+      }
       /* 幽灵层的 id 也必须在幽灵快照里 */
       if (s.hl.ghost) for (const id of (s.hl.rot || [])) if (!ghostIds.has(id) && false) {}
     }
