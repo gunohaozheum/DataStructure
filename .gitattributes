@@ -1,0 +1,9 @@
+# 统一按文本处理，仓库内保存 LF，避免跨平台出现整文件差异
+* text=auto
+
+# 明确二进制类型
+*.png binary
+*.jpg binary
+*.gif binary
+*.pdf binary
+*.zip binary

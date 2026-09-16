@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AVL 树原理演示 · 平衡二叉搜索树可视化</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#131c2e; --panel2:#18233a; --line:#25334f;
+    --text:#e8eef9; --muted:#93a2bd; --accent:#4cc9f0; --accent2:#8b5cf6;
+    --ok:#3ddc97; --warn:#ffb703; --bad:#ff6b8b; --rot:#c46bd6;
+    --shadow:0 8px 28px rgba(0,0,0,.42);
+    --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:radial-gradient(1200px 700px at 18% -10%,#16233c,#0b1220 60%) fixed;
+    color:var(--text);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;overflow:hidden;
+  }
+  .app{height:100vh;display:flex;flex-direction:column;gap:10px;padding:12px 14px 14px}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .brand{display:flex;align-items:baseline;gap:10px}
+  .brand h1{font-size:18px;margin:0;letter-spacing:.5px}
+  .brand .sub{font-size:12px;color:var(--muted)}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);
+              box-shadow:0 0 12px var(--accent);display:inline-block}
+  .toolbar{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .group{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);
+         border-radius:10px;padding:6px 8px}
+  .group .lbl{font-size:11px;color:var(--muted);margin-right:2px}
+  input[type=number]{width:80px;background:#0d1728;border:1px solid var(--line);border-radius:7px;color:var(--text);
+    padding:6px 8px;font-family:var(--mono);font-size:13px;outline:none}
+  input[type=number]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(76,201,240,.15)}
+  input[type=number].bad{border-color:var(--bad);animation:shake .3s}
+  @keyframes shake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+  button{background:linear-gradient(180deg,#1d2b46,#16223a);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:7px 11px;font-size:12.5px;cursor:pointer;font-family:inherit;transition:.14s;white-space:nowrap}
+  button:hover{border-color:var(--accent);transform:translateY(-1px)}
+  button:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  button.primary{background:linear-gradient(180deg,#1f6f9c,#14506f);border-color:#3a9fd0}
+  button.danger:hover{border-color:var(--bad);color:#ffd7e0}
+  button.small{padding:5px 8px;font-size:11.5px}
+  button.toggle.on{background:linear-gradient(180deg,#1f6f9c,#14506f);border-color:#3a9fd0}
+  input[type=range]{width:96px;accent-color:var(--accent)}
+
+  main{flex:1;min-height:0;display:grid;grid-template-columns:212px minmax(420px,1fr) 400px;gap:10px}
+  .panel{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);
+    border-radius:12px;box-shadow:var(--shadow);min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .panel>h2{margin:0;padding:9px 12px;font-size:12px;letter-spacing:.6px;color:#bcd0ea;border-bottom:1px solid var(--line);
+    background:rgba(255,255,255,.02);display:flex;align-items:center;gap:7px;text-transform:uppercase}
+  .panel>h2 .tag{margin-left:auto;font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0}
+  .body{padding:10px 12px;overflow:auto;flex:1;min-height:0}
+
+  /* 画布 */
+  .stage{flex:1;min-height:0;position:relative;overflow:hidden;background:
+    radial-gradient(700px 420px at 30% 0%,rgba(76,201,240,.07),transparent 70%),
+    repeating-linear-gradient(0deg,transparent 0 23px,rgba(255,255,255,.022) 23px 24px),
+    repeating-linear-gradient(90deg,transparent 0 23px,rgba(255,255,255,.022) 23px 24px)}
+  .stage svg{position:absolute;inset:0;width:100%;height:100%}
+  .stage .hint{position:absolute;left:12px;bottom:10px;font-size:11.5px;color:#7d8db0;
+    background:rgba(9,15,28,.7);padding:5px 9px;border-radius:8px;border:1px solid var(--line)}
+  .empty-tip{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#5f7095;
+    font-size:14px;pointer-events:none}
+  .legend-mini{position:absolute;right:12px;top:10px;display:flex;gap:10px;font-size:11px;color:#8ea2c2;
+    background:rgba(9,15,28,.62);padding:5px 9px;border-radius:8px;border:1px solid var(--line)}
+  .legend-mini i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+
+  /* 步骤说明 */
+  .caption{padding:11px 13px;border-bottom:1px solid var(--line);background:rgba(76,201,240,.045);
+    display:flex;gap:11px;align-items:flex-start;min-height:80px}
+  .badge{font-family:var(--mono);font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:6px;
+    white-space:nowrap;letter-spacing:.4px;flex:0 0 auto}
+  .badge[data-t=visit]{background:#22406b;color:#9fd0ff}
+  .badge[data-t=compare]{background:#2a3a5c;color:#cfe0f5}
+  .badge[data-t=insert]{background:#1c5340;color:#9ff0c4}
+  .badge[data-t=delete]{background:#5c2130;color:#ffb9c9}
+  .badge[data-t=height]{background:#4a3a12;color:#ffdd8a}
+  .badge[data-t=bf]{background:#3b2f5e;color:#d5c4ff}
+  .badge[data-t=rotate]{background:#6b2f6b;color:#ffc4f5;box-shadow:0 0 0 1px #a24fa2 inset}
+  .badge[data-t=done]{background:#1f5a55;color:#a9f5ea}
+  .badge[data-t=info]{background:#2a3a5c;color:#cfe0f5}
+  .cap-text{font-size:13.5px;line-height:1.5;flex:1}
+  .cap-text .kv{font-family:var(--mono);font-size:11.5px;color:var(--muted);display:block;margin-top:4px}
+
+  /* 步骤轴 */
+  .axis{display:flex;align-items:center;gap:3px;padding:8px 11px;border-top:1px solid var(--line);
+    background:rgba(0,0,0,.16);overflow-x:auto;min-height:40px}
+  .tick{flex:0 0 auto;min-width:21px;height:22px;border-radius:5px;background:#1b2740;border:1px solid #2b3a58;
+    color:#8fa3c4;font-family:var(--mono);font-size:10px;cursor:pointer;display:flex;align-items:center;
+    justify-content:center;padding:0 5px;transition:.12s}
+  .tick:hover{border-color:var(--accent);color:#fff}
+  .tick.done{background:#1d3a4d;color:#a8d8ee}
+  .tick.cur{background:var(--accent);color:#06202c;font-weight:700;border-color:#fff;transform:scale(1.12)}
+  .tick.rot{background:#4a2258;color:#f0c8ff;border-color:#7a3d8c}
+  .tick.rot.done{background:#37193f;color:#d9b6e6}
+  .tick.rot.cur{background:var(--rot);color:#26102c;border-color:#fff}
+
+  /* 播放条 */
+  .player{display:flex;align-items:center;gap:8px;padding:9px 11px;border-top:1px solid var(--line);
+    background:rgba(255,255,255,.02);flex-wrap:wrap}
+  .player .sp{flex:1}
+  .stepinfo{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+  /* 代码 */
+  .codewrap{overflow:auto;flex:1;min-height:120px;padding:8px 0;background:#0f1728}
+  pre.code{margin:0;font-family:var(--mono);font-size:11.8px;line-height:1.62;counter-reset:l}
+  pre.code .ln{display:block;padding:0 12px 0 44px;position:relative;white-space:pre;color:#b9c8e0;
+    border-left:3px solid transparent}
+  pre.code .ln::before{counter-increment:l;content:counter(l);position:absolute;left:0;width:36px;
+    text-align:right;color:#4d5f80;font-size:10.5px}
+  pre.code .ln.hl{background:linear-gradient(90deg,rgba(76,201,240,.19),rgba(76,201,240,.02));
+    border-left-color:var(--accent);color:#fff}
+  pre.code .ln.hl.rot{background:linear-gradient(90deg,rgba(196,107,214,.24),rgba(196,107,214,.02));
+    border-left-color:var(--rot);color:#ffeaff}
+  .codebar{display:flex;gap:6px;padding:7px 10px;border-bottom:1px solid var(--line);
+    background:rgba(0,0,0,.18);align-items:center;flex-wrap:wrap}
+
+  /* 日志 */
+  .log{font-size:12px;line-height:1.5}
+  .log .li{display:flex;gap:7px;padding:4px 0;border-bottom:1px dashed rgba(255,255,255,.05)}
+  .log .li .t{font-family:var(--mono);font-size:10.5px;color:#7f92b4;flex:0 0 46px;padding-top:1px}
+  .log .li .m{flex:1;color:#cbd8ec}
+  .log .li.rot .m{color:#f0c8ff}
+  .log .li.done .m{color:#a9f5ea}
+  .log .li.warn .m{color:#ffd08a}
+  .log .li.err .m{color:#ff9db2}
+  .log .li.click{cursor:pointer}
+  .log .li.click:hover .m{text-decoration:underline}
+
+  /* 侧栏 */
+  .kv-grid{display:grid;grid-template-columns:auto 1fr;gap:5px 10px;font-size:12px;align-items:center}
+  .kv-grid .k{color:var(--muted)}
+  .kv-grid .v{font-family:var(--mono);font-size:12.5px;color:#dfeaf9}
+  table.nodes{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px;margin-top:4px}
+  table.nodes th{color:var(--muted);font-weight:500;text-align:center;padding:3px 2px;border-bottom:1px solid var(--line)}
+  table.nodes td{text-align:center;padding:3px 2px;border-bottom:1px dashed rgba(255,255,255,.05)}
+  table.nodes tr.act td{background:rgba(76,201,240,.16);color:#fff}
+  table.nodes tr.rot td{background:rgba(196,107,214,.18)}
+  .bf0{color:var(--ok)} .bfp{color:var(--accent)} .bfn{color:var(--bad)}
+  .seq{font-family:var(--mono);font-size:11.5px;color:#c9d8ef;word-break:break-all;line-height:1.7;margin-top:5px}
+  .seq .now{background:var(--accent);color:#06202c;border-radius:4px;padding:0 3px;font-weight:700}
+  .legend{display:flex;flex-direction:column;gap:6px;font-size:11.5px;color:#b6c6de;margin-top:6px}
+  .legend .row{display:flex;align-items:center;gap:7px}
+  .sw{width:14px;height:14px;border-radius:4px;flex:0 0 auto;border:1px solid rgba(255,255,255,.25)}
+  details.help{border-top:1px solid var(--line);margin-top:8px;padding-top:6px}
+  details.help summary{cursor:pointer;font-size:11.5px;color:#9fb4d4;outline:none}
+  details.help .c{font-family:var(--mono);font-size:10.5px;color:#a8bbd8;white-space:pre;line-height:1.5;
+    margin-top:6px;overflow-x:auto;background:rgba(0,0,0,.25);padding:8px;border-radius:7px}
+  ul.tips{margin:6px 0 0;padding-left:18px;font-size:11.5px;color:#a8bbd8;line-height:1.6}
+
+  /* SVG 元素样式 */
+  line.edge{stroke:#3c5074;stroke-width:2.1;transition:stroke .25s,stroke-width .25s}
+  line.edge.act{stroke:var(--accent);stroke-width:3}
+  line.edge.past{stroke:#5a7099;stroke-width:3;stroke-dasharray:5 4}
+  line.edge.good{stroke:var(--ok);stroke-width:3.2}
+  line.edge.bad{stroke:var(--bad);stroke-width:3.2}
+  line.edge.rot{stroke:var(--rot);stroke-width:3.4}
+  text.edgekey{font-family:var(--mono);font-size:10px;fill:#61759b;pointer-events:none}
+  circle.node{stroke:#4a628c;stroke-width:2;transition:fill .28s,stroke .28s,r .28s;fill:#1b2740}
+  circle.node.act{fill:#14506f;stroke:var(--accent);stroke-width:3.2}
+  circle.node.good{fill:#1c5340;stroke:var(--ok);stroke-width:3.2}
+  circle.node.bad{fill:#5c2130;stroke:var(--bad);stroke-width:3.4}
+  circle.node.rot{fill:#4a1c56;stroke:#e08bff;stroke-width:3.4}
+  circle.node.warn{fill:#7a4a00;stroke:var(--warn);stroke-width:3.4}
+  circle.node.past{fill:#16223a;stroke:#465f8a;stroke-width:2.4}
+  text.nodekey{font-family:var(--mono);font-size:15px;font-weight:700;fill:#eaf2ff;pointer-events:none}
+  text.nodekey.rot{fill:#ffeaff}
+  text.nodekey.bad{fill:#ffd7e0}
+  text.nodekey.face{fill:#fff}
+  text.nodeh{font-family:var(--mono);font-size:9.5px;fill:#7f92b4;pointer-events:none}
+  text.nodebf{font-family:var(--mono);font-size:10px;font-weight:600;pointer-events:none}
+  text.nodebf.bf0{fill:#3ddc97} text.nodebf.bfp{fill:#4cc9f0} text.nodebf.bfn{fill:#ff6b8b}
+  line.ghost-edge{stroke:var(--warn);stroke-width:1.7;stroke-dasharray:5 5;opacity:.75}
+  rect.ghost-node{fill:rgba(255,183,3,.07);stroke:var(--warn);stroke-width:1.7;stroke-dasharray:5 4;rx:9}
+  circle.ghost-circle{fill:none;stroke:var(--warn);stroke-width:1.3;stroke-dasharray:3 4;opacity:.6}
+  text.ghost-txt{font-family:var(--mono);font-size:14px;font-weight:700;fill:#ffd479;opacity:.95;pointer-events:none}
+  g.oldghost line.ghost-edge{stroke:#8b6b2f;opacity:.4}
+  g.oldghost rect.ghost-node{stroke:#8b6b2f;opacity:.38}
+  g.oldghost circle.ghost-circle{stroke:#8b6b2f}
+  g.oldghost text.ghost-txt{fill:#c99a45;opacity:.5}
+
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#2a3a58;border-radius:9px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#3b5182;background-clip:content-box}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  @media(max-width:1360px){ main{grid-template-columns:190px 1fr 340px} }
+  @media(max-width:1080px){ body{overflow:auto} .app{height:auto} main{grid-template-columns:1fr} .stage{height:58vh} }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>AVL 树原理演示</h1>
+      <span class="sub">平衡二叉搜索树 · 插入 / 删除 / 查找 · 四大旋转逐步细化</span>
+    </div>
+    <div class="toolbar">
+      <div class="group">
+        <span class="lbl">值</span>
+        <input id="val" type="number" min="0" max="999" value="45" placeholder="0-999">
+        <button class="primary" id="bIns">插入</button>
+        <button class="danger" id="bDel">删除</button>
+        <button id="bFind">查找</button>
+      </div>
+      <div class="group">
+        <button class="primary" id="bDemo">▶ 自动演示</button>
+        <button id="bRnd">随机插入</button>
+        <button id="bUndo" title="撤销上一次操作（Ctrl+Z）">↶ 撤销</button>
+        <button class="danger" id="bClear">清空</button>
+      </div>
+      <div class="group">
+        <span class="lbl">速度</span>
+        <input id="spd" type="range" min="0.4" max="3.2" step="0.2" value="1.1">
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- 左栏 -->
+    <section class="panel">
+      <h2>状态 <span class="tag" id="verTag">v1</span></h2>
+      <div class="body">
+        <div class="kv-grid">
+          <span class="k">结点数</span><span class="v" id="stCount">0</span>
+          <span class="k">树高</span><span class="v" id="stHeight">0</span>
+          <span class="k">树根</span><span class="v" id="stRoot">—</span>
+          <span class="k">理想最少</span><span class="v" id="stMin">0</span>
+          <span class="k">AVL 上限</span><span class="v" id="stMax">0</span>
+        </div>
+        <details class="help" open>
+          <summary>中序序列（必为升序）</summary>
+          <div class="seq" id="stSeq">—</div>
+        </details>
+        <details class="help" open>
+          <summary>结点表（值 / 高 / BF / 孩子）</summary>
+          <div style="max-height:210px;overflow:auto">
+            <table class="nodes"><thead><tr><th>值</th><th>h</th><th>BF</th><th>左</th><th>右</th></tr></thead>
+            <tbody id="stTable"></tbody></table>
+          </div>
+        </details>
+        <details class="help">
+          <summary>图例 / 快捷键</summary>
+          <div class="legend">
+            <div class="row"><span class="sw" style="background:#14506f;border-color:#4cc9f0"></span>被比较 / 当前结点</div>
+            <div class="row"><span class="sw" style="background:#1c5340;border-color:#3ddc97"></span>新插入结点</div>
+            <div class="row"><span class="sw" style="background:#5c2130;border-color:#ff6b8b"></span>待删除 / 失衡结点</div>
+            <div class="row"><span class="sw" style="background:#4a1c56;border-color:#e08bff"></span>参与旋转的结点</div>
+            <div class="row"><span class="sw" style="background:#7a4a00;border-color:#ffb703"></span>BF 超限（|BF| ≥ 2）</div>
+            <div class="row"><span class="sw" style="background:transparent;border:1px dashed #ffb703"></span>幽灵框＝旋转前的位置</div>
+          </div>
+          <ul class="tips">
+            <li><kbd>空格</kbd> 播放/暂停，<kbd>←</kbd> <kbd>→</kbd> 单步</li>
+            <li>点击步骤轴上的方块可跳转到任意步骤</li>
+            <li>拖动画布平移，滚轮缩放，双击复位</li>
+          </ul>
+        </details>
+      </div>
+    </section>
+
+    <!-- 画布 -->
+    <section class="panel">
+      <h2>树结构 <span class="tag" id="stageTag"></span></h2>
+      <div class="stage" id="stage">
+        <svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div class="legend-mini"><span><i style="background:#3ddc97"></i>BF=0</span>
+          <span><i style="background:#4cc9f0"></i>BF=±1</span><span><i style="background:#ff6b8b"></i>|BF|≥2</span></div>
+        <div class="empty-tip" id="emptyTip">树为空 — 输入一个值并点击「插入」开始</div>
+        <div class="hint" id="hint">拖动平移 · 滚轮缩放 · 双击复位</div>
+      </div>
+      <div class="caption">
+        <span class="badge" id="capBadge" data-t="info">准备就绪</span>
+        <div class="cap-text" id="capText">点击「自动演示」观看 AVL 树如何在插入与删除时通过旋转保持平衡。<span class="kv" id="capKv"></span></div>
+      </div>
+      <div class="axis" id="axis"></div>
+      <div class="player">
+        <button id="bPrev" title="上一步 (←)">◀</button>
+        <button class="primary" id="bPlay" title="播放 / 暂停 (空格)">▶ 播放</button>
+        <button id="bNext" title="下一步 (→)">▶</button>
+        <span class="stepinfo" id="stepInfo">步骤 0 / 0</span>
+        <span class="sp"></span>
+        <button id="bDetail" class="toggle small on" title="关闭后把旋转的逐句解说折叠成一步">旋转细分：开</button>
+      </div>
+    </section>
+
+    <!-- 右栏 -->
+    <section class="panel">
+      <h2>算法伪代码 <span class="tag" id="codeTag"></span></h2>
+      <div class="codebar">
+        <button class="small toggle on" data-code="insert">插入 insert</button>
+        <button class="small toggle" data-code="del">删除 remove</button>
+        <button class="small toggle" data-code="rot">旋转 rotate</button>
+        <span class="sp" style="flex:1"></span>
+        <button class="small toggle on" id="bAutoCode" title="关闭后可自由浏览伪代码，不再跟随步骤">跟随步骤</button>
+      </div>
+      <div class="codewrap"><pre class="code" id="code"></pre></div>
+      <h2 style="border-top:1px solid var(--line)">操作日志 <span class="tag">点击条目可回看</span></h2>
+      <div class="body log" id="log" style="max-height:32%"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+/* =========================================================================
+   AVL 树演示 —— 引擎 + 可视化
+   1) 真实维护一棵正确的 AVL 树，任何结构/高度/BF 变化都会生成快照；
+   2) 一次操作拆成若干「步骤」：{ 快照, 高亮, 中文解说, 伪代码行号 }；
+   3) 旋转额外记录「旋转前」的画面，用虚线幽灵 + 弧线箭头展示旋转过程。
+   ========================================================================= */
+'use strict';
+const $ = id => document.getElementById(id);
+let __uid = 1;
+const nid = () => 'n' + (__uid++);
+const clone = o => JSON.parse(JSON.stringify(o));
+
+/* ------------------------------------------------------------- 伪代码 */
+const CODE_INSERT =
+`Node* insert(Node* t, int key) {
+  if (t == NULL) return newNode(key);        // 1. 空位：新建叶子
+  if (key < t->key)      t->left  = insert(t->left , key);
+  else if (key > t->key) t->right = insert(t->right, key);
+  else return t;                             // 重复值：忽略
+
+  update(t);                                 // 2. h = 1 + max(h(l), h(r))
+  int bf = balanceFactor(t);                 // 3. bf = h(l) - h(r)
+
+  if (bf > 1 && key < t->left->key)          // LL 型
+      return rotateRight(t);
+  if (bf < -1 && key > t->right->key)        // RR 型
+      return rotateLeft(t);
+  if (bf > 1 && key > t->left->key) {        // LR 型
+      t->left = rotateLeft(t->left);         //    先左旋左孩子
+      return rotateRight(t);                 //    再右旋自己
+  }
+  if (bf < -1 && key < t->right->key) {      // RL 型
+      t->right = rotateRight(t->right);      //    先右旋右孩子
+      return rotateLeft(t);                  //    再左旋自己
+  }
+  return t;                                  // 已平衡，无需旋转
+}`;
+
+const CODE_DELETE =
+`Node* remove(Node* t, int key) {
+  if (t == NULL) return NULL;               // 没找到
+  if (key < t->key)      t->left  = remove(t->left , key);
+  else if (key > t->key) t->right = remove(t->right, key);
+  else {                                    // 找到目标结点
+    if (!t->left || !t->right) {            // 情形 A：0 或 1 个孩子
+      Node* child = t->left ? t->left : t->right;
+      free(t); return child;                //   用唯一孩子顶替
+    } else {                                // 情形 B：2 个孩子
+      Node* s = minNode(t->right);          //   中序后继 = 右子树最小
+      t->key = s->key;                      //   值覆盖过来
+      t->right = remove(t->right, s->key);  //   递归删掉那个后继
+    }
+  }
+  update(t);                                // 回溯：更新高度
+  int bf = balanceFactor(t);                // 回溯：算平衡因子
+  if (bf > 1  && balanceFactor(t->left)  >= 0) return rotateRight(t);          // LL
+  if (bf > 1  && balanceFactor(t->left)  <  0){ t->left  = rotateLeft(t->left);   return rotateRight(t); } // LR
+  if (bf < -1 && balanceFactor(t->right) <= 0) return rotateLeft(t);           // RR
+  if (bf < -1 && balanceFactor(t->right) >  0){ t->right = rotateRight(t->right); return rotateLeft(t); }  // RL
+  return t;
+}`;
+
+const CODE_ROT =
+`/* ---- 右旋：以 y 为轴顺时针"提拉"，用于修复 LL 型 ---- */
+Node* rotateRight(Node* y) {
+  Node* x  = y->left;          // ① x 是要上提的结点
+  Node* T2 = x->right;         // ② T2 介于 x 与 y 之间，需改挂
+  x->right = y;                // ③ y 变成 x 的右孩子
+  y->left  = T2;               // ④ T2 挂到 y 的左边（中序序不变）
+  update(y); update(x);        // ⑤ 先更新 y 的高度，再更新 x
+  return x;                    // ⑥ x 顶替 y 原来的位置
+}
+/* ---- 左旋：右旋的镜像，用于修复 RR 型 ---- */
+Node* rotateLeft(Node* x) {
+  Node* y  = x->right;         // ① y 是要上提的结点
+  Node* T2 = y->left;          // ② T2 改挂到 x 的右边
+  y->left  = x;                // ③ x 变成 y 的左孩子
+  x->right = T2;               // ④
+  update(x); update(y);        // ⑤ 先更新 x，再更新 y
+  return y;                    // ⑥ y 顶替 x 原来的位置
+}
+/* 四种失衡型的处理：
+   LL 型：单次右旋            RR 型：单次左旋
+   LR 型：左孩子先左旋→自己再右旋   RL 型：右孩子先右旋→自己再左旋 */`;
+
+/* ------------------------------------------------------------- 引擎 */
+class AVL {
+  constructor(){ this.root = null; this._rotSeq = 0; }
+  static h(n){ return n ? n.height : 0; }
+  static bf(n){ return n ? AVL.h(n.left) - AVL.h(n.right) : 0; }
+  static upd(n){ n.height = 1 + Math.max(AVL.h(n.left), AVL.h(n.right)); }
+
+  snapshot(){
+    const nodes = [], edges = [];
+    (function walk(n){
+      if (!n) return;
+      nodes.push({ id:n.id, key:n.key, height:n.height, bf:AVL.bf(n),
+                   l:n.left?n.left.id:null, r:n.right?n.right.id:null });
+      if (n.left){ edges.push({ from:n.id, to:n.left.id, side:'L' });  walk(n.left); }
+      if (n.right){ edges.push({ from:n.id, to:n.right.id, side:'R' }); walk(n.right); }
+    })(this.root);
+    return { nodes, edges, root: this.root ? this.root.id : null };
+  }
+  find(key){ let n = this.root; while (n){ if (key === n.key) return n; n = key < n.key ? n.left : n.right; } return null; }
+  inorder(){ const out = []; (function w(n){ if (!n) return; w(n.left); out.push(n.key); w(n.right); })(this.root); return out; }
+
+  /* 插入：返回 { changed, path, newId } */
+  insert(key, rec){
+    let changed = false; const path = [];
+    const go = (t, k) => {
+      if (!t){
+        changed = true;
+        const node = { id:nid(), key:k, height:1, left:null, right:null };
+        if (rec) rec.newId = node.id;
+        return node;
+      }
+      path.push(t.id);
+      if (k === t.key) return t;
+      if (k < t.key) t.left = go(t.left, k); else t.right = go(t.right, k);
+
+      const pb = { l:AVL.h(t.left), r:AVL.h(t.right) }, ph = t.height;
+      AVL.upd(t);
+      if (rec){
+        if (t.height !== ph) rec.heightFix.push({ id:t.id, key:t.key, from:ph, to:t.height });
+        rec.bfLog.push({ id:t.id, key:t.key, bf:AVL.bf(t), before:pb });
+        /* 第一次遇到失衡：说明这片子树已经“长歪”，把它记下来，
+           回溯的高度/BF 讲解就用这幅画面（此时祖先结点还没被旋转替换，id 有效） */
+        if (!rec.preRotSnap && Math.abs(AVL.bf(t)) > 1) rec.preRotSnap = this.snapshot();
+      }
+      const bf = AVL.bf(t);
+      if (bf > 1 && k < t.left.key)   return this.turn(t, 'R', rec);
+      if (bf < -1 && k > t.right.key) return this.turn(t, 'L', rec);
+      if (bf > 1){  t.left  = this.turn(t.left,  'L', rec); return this.turn(t, 'R', rec); }
+      if (bf < -1){ t.right = this.turn(t.right, 'R', rec); return this.turn(t, 'L', rec); }
+      return t;
+    };
+    this.root = go(this.root, key);
+    return { changed, path, newId: rec ? rec.newId : null };
+  }
+
+  /* 删除：0/1/2 孩子 + 自底向上再平衡。返回 { removedKey } */
+  remove(key, rec){
+    let removedKey = null, topLevel = true;
+    /* 自底向上再平衡（插入与删除共用同一套判定） */
+    const rebalance = (t, k, r) => {
+      const pb = { l:AVL.h(t.left), r:AVL.h(t.right) }, ph = t.height;
+      AVL.upd(t);
+      if (r){
+        /* 记下 key：旋转会重建结点、id 会变，讲解文字用 key 才稳定 */
+        if (t.height !== ph) r.heightFix.push({ id:t.id, key:t.key, from:ph, to:t.height });
+        r.bfLog.push({ id:t.id, key:t.key, bf:AVL.bf(t), before:pb });
+      }
+      const bf = AVL.bf(t);
+      if (bf > 1){
+        if (AVL.bf(t.left) >= 0) return this.turn(t, 'R', r);                        // LL
+        t.left = this.turn(t.left, 'L', r); return this.turn(t, 'R', r);              // LR
+      }
+      if (bf < -1){
+        if (AVL.bf(t.right) <= 0) return this.turn(t, 'L', r);                       // RR
+        t.right = this.turn(t.right, 'R', r); return this.turn(t, 'L', r);            // RL
+      }
+      return t;
+    };
+    /* 情形 B：摘掉右子树里的最小结点。必须一路再平衡，
+       否则“后继被摘走”这条路径上的结点会漏掉旋转，留下 |BF| ≥ 2。 */
+    const takeMin = (t, r, sub) => {
+      if (!t.left){
+        if (sub) sub.gone = { id:t.id, key:t.key, by:t.right ? t.right.id : null };
+        return t.right;
+      }
+      t.left = takeMin(t.left, r, sub);
+      return rebalance(t, null, r);
+    };
+    const go = (t, k) => {
+      if (!t) return null;
+      if (k < t.key) t.left = go(t.left, k);
+      else if (k > t.key) t.right = go(t.right, k);
+      else {
+        if (topLevel){ removedKey = t.key; topLevel = false; }
+        if (rec && !rec.delId) rec.delId = t.id;
+        if (!t.left || !t.right){                       // 情形 A：0 或 1 个孩子
+          const c = t.left ? t.left : t.right;
+          if (rec) rec.repl.push({ gone:t.id, by:c ? c.id : null, leaf:!c });
+          return c;
+        }
+        /* 情形 B：2 个孩子 → 用中序后继（右子树最小值）的值覆盖 */
+        let s = t.right; while (s.left) s = s.left;
+        if (rec) rec.succ = { repId:t.id, oldKey:t.key, succId:s.id, succKey:s.key };
+        t.key = s.key;
+        if (rec) rec.midSnap = this.snapshot();         // 值已覆盖、后继尚未摘除的中间画面
+        const sub = {}; t.right = takeMin(t.right, rec, sub);
+        if (rec && sub.gone) rec.repl.push({ gone:sub.gone.id, by:sub.gone.by, leaf:!sub.gone.by,
+                                             isSucc:true, key:sub.gone.key, afterRepId:t.id });
+      }
+      /* 回溯讲解用“操作前”的画面，避免结点被后继替换后 id 失配 */
+      if (rec && !rec.preRotSnap && (rec.succ || rec.repl.length)) rec.preRotSnap = rec.midSnap || rec.preSnap;
+      return rebalance(t, k, rec);
+    };
+    this.root = go(this.root, key);
+    return { removedKey };
+  }
+
+  /* ---- 单次旋转：不原地改写指针，而是用旧结点的信息“拼装”出两个新结点 ----
+     这样实现的好处：
+       1) 彻底避免 y、x 互相指认时产生的自环/重复引用；
+       2) 旋转前后每个结点的孩子关系都显式写在构造表达式里，便于对照讲解；
+       3) 旋转前的结点仍被“幽灵快照”引用，可视化时能画出 before/after。
+     注意：id 会更新（这是新结点），但 key 与子树结构完全等价。 */
+  turn(y, dir, rec){
+    const x  = dir === 'R' ? y.left  : y.right;
+    const T2 = dir === 'R' ? x.right : x.left;
+    const yOld = { left: y.left ? y.left.id : null, right: y.right ? y.right.id : null };
+    const xOld = { left: x.left ? x.left.id : null, right: x.right ? x.right.id : null };
+    const before = this.snapshot();       // ← 旋转前的图（幽灵层用它）
+    const gen = ++this._rotSeq;
+
+    /* 三个“新”结点：y' 降一层，x' 升为子树根，T2 原样保留 */
+    let y2, x2;
+    if (dir === 'R'){
+      y2 = { id:'n' + (__uid++) + 'r' + gen, key:y.key, height:1, left:T2,   right:y.right };
+      x2 = { id:'n' + (__uid++) + 'r' + gen, key:x.key, height:1, left:x.left, right:y2 };
+    } else {
+      y2 = { id:'n' + (__uid++) + 'r' + gen, key:y.key, height:1, left:y.left, right:T2 };
+      x2 = { id:'n' + (__uid++) + 'r' + gen, key:x.key, height:1, left:y2,      right:x.right };
+    }
+    AVL.upd(y2); AVL.upd(x2);             // 先更新降下去的 y，再更新升上来的 x
+
+    if (rec) rec.rots.push({
+      type:dir, y:y2.id, x:x2.id, yKey:y.key, xKey:x.key,
+      t2: T2 ? T2.id : null, t2Key: T2 ? T2.key : null,
+      yOld, xOld, before, after:rec.onTurn ? rec.onTurn(x2) : null,
+      hY:{ from:y.height, to:y2.height }, hX:{ from:x.height, to:x2.height }
+    });
+    return x2;
+  }
+}
+
+/* ------------------------------------------------------------- 步骤构造 */
+const LAB = { visit:'沿路径', compare:'比较', insert:'插入', delete:'删除', height:'更新高度',
+              bf:'平衡因子', rotate:'旋转', done:'完成', info:'说明' };
+
+/* 每个步骤类型 → 伪代码行号（两套代码各一份） */
+const LINES = {
+  insert: { visit:[3], compare:[3,4], insert:[2], height:[7], bf:[8], rotate:[10,12,14,16], done:[20] },
+  del:    { visit:[4], compare:[4,5], delete:[6,7,8,10,11,12], height:[15], bf:[16], rotate:[17,18,19,20], done:[22] },
+  rot:    { rotate:[3,4,5,6,7,8,9,10,11,12,13,14,15,16,17] }
+};
+
+function keyOf(snap, id){ const n = snap.nodes.find(x => x.id === id); return n ? n.key : '?'; }
+/* 结点可能被旋转“重建”（换了 id），按 key 反查当前 id 最稳妥 */
+function idOfKey(snap, key){ const n = snap.nodes.find(x => x.key === key); return n ? n.id : null; }
+
+function stepInsert(avl, key, detail){
+  const rec = { preSnap: avl.snapshot(), newId:null, heightFix:[], bfLog:[], rots:[], path:[] };
+  /* 每次旋转结束后立刻为“该次旋转的子树”留一张快照（父结点稍后才认领它，
+     所以这里临时把 root 指过去拍一张，再换回来）。 */
+  rec.onTurn = sub => { const old = avl.root; avl.root = sub; const snap = avl.snapshot(); avl.root = old; return snap; };
+  const res = avl.insert(key, rec);
+  const S = [];
+  const snapNow = () => avl.snapshot();
+
+  if (!res.changed){
+    const n = avl.find(key);
+    S.push({ t:'done', msg:`值 ${key} 已在树中，AVL 树不允许重复键，操作结束。`, cur:snapNow(), hl:{ act:[n.id] }, code:[5] });
+    return S;
+  }
+  const path = res.path;
+  /* 用插入前的树逐层演示“比较 → 往哪走” */
+  const preSnap = clone(rec.preSnap);
+  /* 这两种画面很重要：
+       insertSnap —— 新结点刚挂上、还没旋转时的树（讲解插入动作与回溯计算就用它）；
+       lastSnap   —— 操作全部结束后的树。
+     旋转会重建结点（换 id），所以“新结点”的 id 要按 key 在对应画面里反查。 */
+  const lastSnap = snapNow();
+  const insertSnap = rec.preRotSnap || lastSnap;
+  const newIdNow = idOfKey(insertSnap, key);
+  if (path.length === 0){
+    S.push({ t:'insert', msg:`树为空，新结点 ${key} 直接成为根结点（高度 1，BF = 0）。`,
+             cur:insertSnap, hl:{ good:[newIdNow].filter(Boolean) }, code:[2] });
+  } else {
+    for (let i = 0; i < path.length; i++){
+      const px = path[i], last = (i === path.length - 1);
+      const pnode = preSnap.nodes.find(n => n.id === px);
+      if (!pnode) continue;
+      const lefter = key < pnode.key;
+      S.push({ t:'compare',
+        msg:`比较 ${key} 与结点 ${pnode.key}：${lefter ? '更小 → 向左子树' : '更大 → 向右子树'}。`,
+        kv:`当前比较结点高度 h=${pnode.height}，BF=${pnode.bf > 0 ? '+' + pnode.bf : pnode.bf}`,
+        cur: preSnap, hl:{ act:[px], mark:{ past: path.slice(0, i) } }, code:[3] });
+      if (last){
+        S.push({ t:'compare',
+          msg:`${pnode.key} 的${lefter ? '左' : '右'}孩子为空，${key} 就挂在这里（新叶子，h = 1）。`,
+          kv:`插入位置：第 ${i + 2} 层`,
+          cur: preSnap, hl:{ act:[px], mark:{ past: path.slice(0, i) } }, code:[2,3] });
+      }
+    }
+    S.push({ t:'insert', msg:`新结点 ${key} 插入成功（绿色）。注意：它的祖先们的高度和 BF 需要自底向上重新计算。`,
+             cur:insertSnap, hl:{ good:[newIdNow].filter(Boolean) }, code:[2] });
+  }
+
+  if (detail){
+    /* 回溯阶段显示“新结点刚挂上、还没旋转”的树：与算法此刻的真实状态一致 */
+    for (const h of rec.heightFix){
+      if (h.from === h.to) continue;
+      S.push({ t:'height', msg:`回溯更新高度：h(${h.key}) = 1 + max(左高, 右高) = ${h.to}`,
+               kv:`${h.from} → ${h.to}`, cur: insertSnap, hl:{ act:[h.id] }, code:[7] });
+    }
+    for (const b of rec.bfLog){
+      const over = Math.abs(b.bf) > 1;
+      S.push({ t:'bf', msg:`计算结点 ${b.key} 的平衡因子：BF = 左高(${b.before.l}) − 右高(${b.before.r}) = ${b.bf}`
+             + (over ? '　⚠ |BF| > 1，必须旋转修复！' : '　→ |BF| ≤ 1，平衡。'),
+             kv: over ? '失衡！' : '平衡', cur: insertSnap,
+             hl:{ act:[b.id], warn: over ? [b.id] : [] }, code:[8] });
+    }
+  }
+  pushRotSteps(S, avl, rec.rots, detail, 'insert');
+  S.push({ t:'done', msg:`插入 ${key} 完成：所有结点 |BF| ≤ 1，树高 = ${AVL.h(avl.root)}。`,
+           cur:lastSnap, hl:{ good:[idOfKey(lastSnap, key)].filter(Boolean) }, code:[20] });
+  return S;
+}
+
+function stepDelete(avl, key, detail){
+  const rec = { preSnap: avl.snapshot(), delId:null, delKey:null, repl:[], succ:null, heightFix:[], bfLog:[], rots:[] };
+  rec.onTurn = sub => { const old = avl.root; avl.root = sub; const snap = avl.snapshot(); avl.root = old; return snap; };
+  const res = avl.remove(key, rec);
+  const S = [], snapNow = () => avl.snapshot();
+
+  if (res.removedKey === null){
+    S.push({ t:'done', msg:`树中不存在 ${key}，删除操作未改变任何结点。`, cur:snapNow(), code:[3] });
+    return S;
+  }
+  const pre = clone(rec.preSnap);
+  const dn = pre.nodes.find(n => n.id === rec.delId);
+  const kids = dn ? (dn.l ? 1 : 0) + (dn.r ? 1 : 0) : 0;
+  S.push({ t:'delete',
+    msg:`从根开始查找 ${rec.delKey}：逐层比较后定位到目标结点（${kids === 0 ? '叶子结点' : kids === 1 ? '只有 1 个孩子' : '有 2 个孩子，需要中序后继来替换'}）。`,
+    kv: dn ? `h = ${dn.height}，BF = ${dn.bf > 0 ? '+' + dn.bf : dn.bf}，左孩子 ${dn.l ? '有' : '无'}，右孩子 ${dn.r ? '有' : '无'}` : '',
+    cur: pre, hl:{ bad:[rec.delId] }, code:[6] });
+
+  if (rec.succ){
+    const mid = rec.midSnap ? clone(rec.midSnap) : pre;
+    S.push({ t:'delete',
+      msg:`在 ${rec.succ.oldKey} 的右子树里一路向左，找到中序后继 ${rec.succ.succKey}（右子树的最小值，它最多只有右孩子）。`,
+      kv:`中序后继 = 比 ${rec.succ.oldKey} 大的最小值，用它替换可以保持 BST 性质`,
+      cur: pre, hl:{ bad:[rec.succ.repId], act:[rec.succ.succId] }, code:[11] });
+    S.push({ t:'delete',
+      msg:`值覆盖：${rec.succ.oldKey} 的结点值被改成后继的值 ${rec.succ.succKey}（现在树里出现两个 ${rec.succ.succKey}：一个是目标结点，一个是后继本身）。`,
+      kv:'这一步没有改变树形，只改了值',
+      cur: mid, hl:{ bad:[rec.succ.repId], act:[rec.succ.succId] }, code:[12] });
+  }
+  if (rec.repl.length){
+    const rp = rec.repl[rec.repl.length - 1];
+    const cur = rec.midSnap && rp.isSucc ? clone(rec.midSnap) : pre;
+    if (rp.leaf){
+      S.push({ t:'delete',
+        msg: rp.isSucc
+          ? `接着把后继结点 ${rp.key}（叶子）从右子树中摘掉 —— 这才是真正的“结构删除”。`
+          : `目标结点是叶子：把父结点指向它的指针置空，结点直接摘除。`,
+        kv: rp.isSucc ? '摘除后不会出现重复值' : '',
+        cur, hl:{ bad:[rp.gone] }, code:[8] });
+    } else if (rp.by){
+      S.push({ t:'delete',
+        msg: rp.isSucc
+          ? `把后继结点 ${rp.key} 摘掉，用它的右孩子 ${keyOf(pre, rp.by)} 顶替它的位置。`
+          : `目标结点只有 1 个孩子：让子树 ${keyOf(pre, rp.by)} 整体“上移”顶替被删结点的位置。`,
+        cur, hl:{ bad:[rp.gone], good:[rp.by] }, code:[8] });
+    }
+  }
+  const after = snapNow();
+  S.push({ t:'delete', msg:`结构删除完成。删掉结点会让相关子树高度 −1，祖先的平衡因子可能因此越界。`,
+           cur: after, hl:{}, code:[8,12] });
+
+  if (detail){
+    /* 回溯阶段用“操作前”的画面 + 记录下来的 key：结点被后继替换或旋转重建后，文字仍然正确 */
+    for (const h of rec.heightFix){
+      if (h.from === h.to) continue;
+      S.push({ t:'height', msg:`回溯更新高度：结点 ${h.key} 的高度 ${h.from} → ${h.to}`,
+               kv:'h = 1 + max(左高, 右高)', cur: pre, hl:{ act:[h.id] }, code:[15] });
+    }
+    for (const b of rec.bfLog){
+      const over = Math.abs(b.bf) > 1;
+      S.push({ t:'bf', msg:`计算结点 ${b.key} 的平衡因子：BF = ${b.before.l} − ${b.before.r} = ${b.bf}`
+             + (over ? '　⚠ 越界，需要旋转！' : '　→ 平衡。'),
+             kv: over ? '失衡！' : '平衡', cur: pre, hl:{ act:[b.id], warn: over ? [b.id] : [] }, code:[16] });
+    }
+  }
+  pushRotSteps(S, avl, rec.rots, detail, 'delete');
+  S.push({ t:'done', msg:`删除 ${key} 完成：整棵树重新满足 AVL 条件，树高 = ${AVL.h(avl.root)}。`,
+           cur:snapNow(), code:[22] });
+  return S;
+}
+
+/* 旋转 → 细化的步骤；每个旋转生成「旋转前（幽灵）」和「旋转后」两幅画面 */
+function pushRotSteps(S, avl, rots, detail, ctx){
+  const nameOf = d => d === 'R' ? '右旋 rotateRight' : '左旋 rotateLeft';
+  const wayOf  = d => d === 'R' ? '顺时针提拉' : '逆时针提拉';
+  const lines  = ctx === 'delete' ? LINES.del.rotate : LINES.insert.rotate;
+  /* 失衡型：单旋时看旋转方向（右旋修 LL，左旋修 RR）；
+     双旋时第 1 步先修内侧（右旋 → RL 型，左旋 → LR 型），第 2 步是外侧旋转。 */
+  const typeName = i => (rots.length > 1
+      ? (i === 0 ? (rots[0].type === 'R' ? 'RL' : 'LR') : (rots[0].type === 'R' ? 'LR' : 'RL'))
+      : (rots[0].type === 'R' ? 'LL' : 'RR'));
+  rots.forEach((r, i) => {
+    const kind = rots.length > 1 ? (i === 0 ? '双旋第 1 步' : '双旋第 2 步')
+                                 : (r.type === 'R' ? 'LL 型' : 'RR 型');
+    const why  = rots.length > 1 ? (i === 0 ? '先把内侧（孙子）转成一条直线 → ' : '再对失衡结点做外侧旋转 → ')
+                                 : '';
+    const ghost = r.before;
+    const after = r.after || avl.snapshot();   // ← “刚刚转完这一下”的画面，id 才对得上
+    /* yOld / xOld 记的是旋转前 y、x 各自的孩子 id：
+       y 的旧 id 就是当初挂上来的那个孩子（右旋时是 y.left，左旋时是 y.right），
+       x 同理。取错了会得到新结点的 id，幽灵层就高亮不到东西。 */
+    const idOldY = r.type === 'R' ? r.yOld.left : r.yOld.right;
+    const idOldX = r.type === 'R' ? r.xOld.left : r.xOld.right;
+    const rotOld = [idOldY, idOldX].filter(Boolean);
+    const rotNew = [r.y, r.x];
+    const markPre  = { rot:rotOld, face:idOldY, rotKind:kind };
+    const markPost = { rot:rotNew, face:r.x, rotKind:kind + ' 完成' };
+    const hlPre  = { rot:rotOld, mark:markPre,  rotType:typeName(i), rotDir:r.type };
+    const hlPost = { rot:rotNew, good:[r.x], mark:markPost, rotType:typeName(i), rotDir:r.type };
+
+    S.push({ t:'rotate',
+      msg:`⚠ 结点 ${r.yKey} 失衡（BF = ${r.type === 'R' ? 2 : -2}），${why}以 ${r.yKey} 为轴做${nameOf(r.type)}：`
+        + `把它的${r.type === 'R' ? '左' : '右'}孩子 ${r.xKey} 提上来。`,
+      kv:`${wayOf(r.type)}　|　旋转前后中序序列保持不变`,
+      cur: ghost, hl: hlPre, code: lines, rotIndex:i, ghostStart:true,
+      rotState:'before', rotPair:rotOld, pivotKey:r.yKey, moverKey:r.xKey });
+
+    if (detail){
+      S.push({ t:'rotate',
+        msg:`① 记下 ${r.xKey} 的${r.type === 'R' ? '右' : '左'}子树 T2 = ${r.t2Key === null ? '空' : r.t2Key}。`
+          + `它在中序里介于 ${r.xKey} 与 ${r.yKey} 之间，旋转后要改挂到 ${r.yKey} 的${r.type === 'R' ? '左' : '右'}边。`,
+        kv:`T2 高度 = ${r.t2Key === null ? 0 : (ghost.nodes.find(n => n.id === r.t2) || {}).height}`,
+        cur: ghost, hl: Object.assign({ act: r.t2 ? [r.t2] : [] }, hlPre),
+        code: lines, rotIndex:i, rotState:'before', rotPair:rotOld });
+      S.push({ t:'rotate',
+        msg:`② 改挂子树：${r.yKey}.${r.type === 'R' ? 'left' : 'right'} = ${r.t2Key === null ? 'NULL' : r.t2Key}。`,
+        kv:'这一步保证中序序列不被破坏（BST 性质）',
+        cur: ghost, hl: Object.assign({ act: r.t2 ? [r.t2] : [] }, hlPre),
+        code: lines, rotIndex:i, rotState:'before', rotPair:rotOld });
+      S.push({ t:'rotate',
+        msg:`③ 交换父子：${r.xKey}.${r.type === 'R' ? 'right' : 'left'} = ${r.yKey}，${r.yKey} 下沉一层成为孩子。`,
+        kv:'接着按“先孩子后父亲”的顺序更新高度',
+        cur: ghost, hl: Object.assign({}, hlPre, { mark: Object.assign({}, markPre, { face:idOldX }) }),
+        code: lines, rotIndex:i, rotState:'before', rotPair:rotOld });
+    }
+    S.push({ t:'rotate',
+      msg:`${detail ? '④ 旋转结果：' : ''}${r.xKey} 升到 ${r.yKey} 原来的位置成为子树新根，`
+        + `${r.yKey} 成为它的${r.type === 'R' ? '右' : '左'}孩子`
+        + `${r.t2Key !== null ? `，T2 = ${r.t2Key} 挂到了 ${r.yKey} 的${r.type === 'R' ? '左' : '右'}边` : ''}。`
+        + `两侧高度恢复，BF 变回 0。`,
+      kv:`h(${r.yKey})：${r.hY.from} → ${r.hY.to}　　h(${r.xKey})：${r.hX.from} → ${r.hX.to}`,
+      cur: after, hl: hlPost, code: lines, rotIndex:i, rotState:'after', rotPair:rotNew,
+      ghostSnap: ghost, ghostLabel:'虚线 = 旋转前的位置' });
+  });
+  if (rots.length > 1){
+    const k = rots.length - 1;
+    const lines = ctx === 'delete' ? LINES.del.rotate : LINES.insert.rotate;
+    S.push({ t:'rotate',
+      msg:`两次旋转都已完成，失衡结点彻底恢复平衡（LR / RL 型必须“先内后外”转两次，一次是不够的）。`,
+      kv:'LR = 左孩子的左旋 + 自己的右旋　　RL = 右孩子的右旋 + 自己的左旋',
+      cur: rots[k].after || avl.snapshot(),
+      hl:{ rot:[rots[k].y, rots[k].x], rotType:typeName(k), rotDir:rots[k].type },
+      code: lines, rotIndex:k, rotDone:true, rotState:'after', rotPair:[rots[k].y, rots[k].x],
+      ghostSnap: rots[k].before, ghostLabel:'虚线 = 第 ' + (k + 1) + ' 次旋转前' });
+  }
+}
+
+function stepFind(avl, key){
+  const S = []; let n = avl.root, k = 0;
+  if (!n) return [{ t:'done', msg:'树是空的，查找失败。', cur:avl.snapshot(), code:[2] }];
+  while (n){
+    k++;
+    const hit = n.key === key;
+    S.push({ t: hit ? 'done' : 'compare',
+      msg: hit ? `命中！找到值为 ${key} 的结点（共比较 ${k} 次，查找代价 O(log n)）。`
+               : `比较 ${key} 与 ${n.key}：${key < n.key ? '更小 → 往左子树' : '更大 → 往右子树'}。`,
+      kv: hit ? '' : `查找路径第 ${k} 步`,
+      cur: avl.snapshot(), hl: hit ? { good:[n.id] } : { act:[n.id] }, code:[2] });
+    if (hit) return S;
+    n = key < n.key ? n.left : n.right;
+  }
+  S.push({ t:'done', msg:`走到空指针，树中不存在 ${key}（共比较 ${k} 次）。`, cur:avl.snapshot(), code:[2] });
+  return S;
+}
+
+/* ------------------------------------------------------------- 演示脚本 */
+const DEMO = [
+  { op:'ins', v:50, why:'空树，50 成为根。' },
+  { op:'ins', v:30, why:'小于 50，挂到左孩子，无需旋转。' },
+  { op:'ins', v:70, why:'大于 50，挂到右孩子，根 BF = 0。' },
+  { op:'ins', v:20, why:'继续往左走，结点 30 变成左重（BF = +1），仍平衡。' },
+  { op:'ins', v:10, why:'★ LL 型：插入后 30 的 BF = +2，需要一次右旋。' },
+  { op:'ins', v:60, why:'挂到 70 左边，树高变大但依旧平衡。' },
+  { op:'ins', v:65, why:'★ RL 型：插到右孩子 70 的左子树上，先对 70 右旋、再对自己左旋。' },
+  { op:'ins', v:80, why:'挂到右侧，结点 70 的 BF 变为 −1。' },
+  { op:'ins', v:75, why:'★ LR 型：插到左孩子 70 的右子树上，先对 70 左旋、再对自己右旋。' },
+  { op:'del', v:10, why:'删除叶子：祖先高度减 1，可能触发再平衡。' },
+  { op:'del', v:50, why:'删除有两个孩子的结点：用中序后继替换值，再摘掉后继。' },
+  { op:'del', v:70, why:'观察删除后自底向上的旋转修复。' }
+];
+
+/* ------------------------------------------------------------- 状态 */
+const avl = new AVL();
+let steps = [], cursor = 0, playing = false, timer = null, playToken = 0;
+let speed = 1.1, detail = true, autoCode = true, followCode = 'insert';
+let version = 1, demoRun = false, lastOp = null;
+const undoStack = [];
+/* 记录“旋转前画面”，供渲染幽灵层使用 */
+const ghostCache = { list: [], forCursor: -1 };
+
+/* ------------------------------------------------------------- 日志 */
+function log(tag, msg, cls, onClick){
+  const box = $('log');
+  const li = document.createElement('div');
+  li.className = 'li ' + (cls || '');
+  const t = document.createElement('span'); t.className = 't'; t.textContent = tag;
+  const m = document.createElement('span'); m.className = 'm'; m.textContent = msg;
+  li.append(t, m);
+  if (onClick){ li.classList.add('click'); li.title = '点击回看这一步'; li.addEventListener('click', onClick); }
+  box.prepend(li);
+  while (box.children.length > 220) box.lastChild.remove();
+}
+function logStep(s, idx){
+  const cls = s.t === 'rotate' ? 'rot' : s.t === 'done' ? 'done' : s.t === 'delete' ? 'warn' : '';
+  log(LAB[s.t] || s.t, s.msg, cls, () => { pause(); goto(idx); });
+}
+
+/* ------------------------------------------------------------- 提交步骤 */
+function setSteps(list, op){
+  steps = list; cursor = 0; version++; lastOp = op || lastOp;
+  ghostCache.list = []; ghostCache.forCursor = -1;
+  buildAxis(); render();
+  if (steps.length){
+    log('操作', op ? op.text : '新的步骤序列', '');
+    for (let i = 0; i < steps.length; i++) logStep(steps[i], i);
+  }
+  updatePlayBtn();
+}
+function codeKindFor(s){
+  if (!s) return followCode;
+  if (s.t === 'rotate') return (lastOp && lastOp.kind === 'del') ? 'del' : (lastOp && lastOp.kind === 'find' ? 'insert' : 'insert');
+  if (s.t === 'delete') return 'del';
+  return 'insert';
+}
+
+/* ------------------------------------------------------------- 画布：布局 + 渲染 */
+function layout(snap){
+  const map = new Map(snap.nodes.map(n => [n.id, n]));
+  const items = [];
+  if (!snap.root || !map.has(snap.root)) return { items, w:880, h:480 };
+  let i = 0, maxDepth = 0;
+  (function walk(id, depth){
+    const n = map.get(id); if (!n) return;
+    if (n.l) walk(n.l, depth + 1);
+    items.push({ n, x: 66 + i * 94, y: 56 + depth * 82 });
+    i++; maxDepth = Math.max(maxDepth, depth);
+    if (n.r) walk(n.r, depth + 1);
+  })(snap.root, 0);
+  return { items, w: Math.max(880, i * 94 + 132), h: Math.max(470, maxDepth * 82 + 132) };
+}
+const SVGNS = 'http://www.w3.org/2000/svg';
+function svgEl(name, attrs){
+  const e = document.createElementNS(SVGNS, name);
+  if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+function sync(container, list, keyFn, apply){
+  if (!container._map) container._map = new Map();
+  const seen = new Set();
+  list.forEach((item, idx) => {
+    const k = keyFn(item); seen.add(k);
+    let node = container._map.get(k);
+    if (!node){ node = svgEl('g', { class:'gnode' }); container._map.set(k, node); }
+    apply(node, item, idx);
+    if (container.children[idx] !== node) container.insertBefore(node, container.children[idx] || null);
+  });
+  for (const [k, node] of [...container._map]) if (!seen.has(k)){ node.remove(); container._map.delete(k); }
+}
+
+function render(){
+  const svg = $('svg');
+  const s = steps.length ? steps[Math.min(cursor, steps.length - 1)] : null;
+  const base = s ? s.cur : avl.snapshot();
+  const hl = (s && s.hl) || {};
+  const P = layout(base);
+
+  /* 幽灵层：旋转前的那幅画面（存在步骤的 ghostSnap 上，避免和 hl 混在一起） */
+  const curGhost = (s && s.ghostSnap) ? { snap:s.ghostSnap, label:s.ghostLabel } : null;
+  const ghostSets = [];
+  if (curGhost) ghostSets.push({ snap:curGhost.snap, label:curGhost.label, old:false });
+
+  /* viewBox：保证幽灵层也完整可见 */
+  let W = P.w, H = P.h;
+  const ghostLayouts = ghostSets.map(g => ({ g, L: layout(g.snap) }));
+  for (const x of ghostLayouts){ W = Math.max(W, x.L.w); H = Math.max(H, x.L.h); }
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+  const pos = new Map(P.items.map(it => [it.n.id, it]));
+  const clsOf = id => {
+    if (hl.bad && hl.bad.includes(id)) return 'bad';
+    if (hl.rot && hl.rot.includes(id)) return 'rot';
+    if (hl.good && hl.good.includes(id)) return 'good';
+    if (hl.warn && hl.warn.includes(id)) return 'warn';
+    if (hl.act && hl.act.includes(id)) return 'act';
+    if (hl.mark && hl.mark.past && hl.mark.past.includes(id)) return 'past';
+    return '';
+  };
+  const edges = [], nodes = [];
+  for (const e of base.edges){
+    if (!pos.has(e.from) || !pos.has(e.to)) continue;
+    edges.push({ a:pos.get(e.from), b:pos.get(e.to), key:e.from + '_' + e.to,
+                 cls:'edge ' + [clsOf(e.from), clsOf(e.to)].filter(Boolean).join(' ') });
+  }
+  for (const it of P.items){
+    const id = it.n.id, c = clsOf(id);
+    nodes.push({ it, id, key:id, cls:'node ' + c, keyCls:'nodekey ' + c + (hl.mark && hl.mark.face === id ? ' face' : '') });
+  }
+
+  /* DOM：gEdges < gGhost < gArrows < gNodes */
+  let gEdges = svg.querySelector('g.gEdges'), gGhost = svg.querySelector('g.gGhost'),
+      gArrows = svg.querySelector('g.gArrows'), gNodes = svg.querySelector('g.gNodes');
+  if (!gEdges){
+    const defs = svgEl('defs');
+    const mk = svgEl('marker', { id:'arrow', viewBox:'0 0 10 10', refX:'8', refY:'5',
+      markerWidth:'7', markerHeight:'7', orient:'auto-start-reverse' });
+    mk.append(svgEl('path', { d:'M 0 0 L 10 5 L 0 10 z', fill:'#c46bd6' }));
+    defs.append(mk);
+    gEdges = svgEl('g', { class:'gEdges' }); gGhost = svgEl('g', { class:'gGhost' });
+    gArrows = svgEl('g', { class:'gArrows' }); gNodes = svgEl('g', { class:'gNodes' });
+    svg.append(defs, gEdges, gGhost, gArrows, gNodes);
+  }
+
+  /* --- 实线边（箭头指向孩子；孩子 < 父亲 记为 L） --- */
+  sync(gEdges, edges, e => e.key, (node, e) => {
+    if (!node._line){
+      node._line = svgEl('line', { class:'edge' });
+      node._key  = svgEl('text', { class:'edgekey', 'text-anchor':'middle' });
+      node.append(node._line, node._key);
+    }
+    let dx = e.b.x - e.a.x, dy = e.b.y - e.a.y;
+    const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    node._line.setAttribute('x1', e.a.x + dx * 21); node._line.setAttribute('y1', e.a.y + dy * 21);
+    node._line.setAttribute('x2', e.b.x - dx * 22); node._line.setAttribute('y2', e.b.y - dy * 22);
+    node._line.setAttribute('class', e.cls);
+    node._key.textContent = (e.b.n.key < e.a.n.key) ? 'L' : 'R';
+    node._key.setAttribute('x', (e.a.x + e.b.x) / 2 - dx * 12 - 8);
+    node._key.setAttribute('y', (e.a.y + e.b.y) / 2 - dy * 12 + 4);
+  });
+
+  /* --- 结点 --- */
+  sync(gNodes, nodes, n => n.key, (node, item) => {
+    if (!node._c){
+      node._c = svgEl('circle', { class:'node', r:21 });
+      node._t = svgEl('text', { class:'nodekey', 'text-anchor':'middle', dy:'5' });
+      node._h = svgEl('text', { class:'nodeh', 'text-anchor':'middle' });
+      node._b = svgEl('text', { class:'nodebf', 'text-anchor':'middle' });
+      node.append(node._c, node._t, node._h, node._b);
+    }
+    const it = item.it, x = it.x, y = it.y;
+    node._c.setAttribute('cx', x); node._c.setAttribute('cy', y); node._c.setAttribute('class', item.cls);
+    node._t.setAttribute('x', x); node._t.setAttribute('y', y);
+    node._t.setAttribute('class', item.keyCls);
+    node._t.textContent = it.n.key;
+    node._h.setAttribute('x', x); node._h.setAttribute('y', y - 28);
+    node._h.textContent = 'h=' + it.n.height;
+    const bf = it.n.bf;
+    node._b.setAttribute('x', x); node._b.setAttribute('y', y + 35);
+    node._b.textContent = 'BF=' + (bf > 0 ? '+' + bf : bf);
+    node._b.setAttribute('class', 'nodebf ' + (Math.abs(bf) > 1 ? 'bfn' : bf === 0 ? 'bf0' : 'bfp'));
+  });
+
+  /* --- 幽灵层：旋转前的位置 --- */
+  const ghosts = [];
+  for (const { g, L } of ghostLayouts){
+    const qm = new Map(L.items.map(it => [it.n.id, it]));
+    for (const e of g.snap.edges){
+      const a = qm.get(e.from), b = qm.get(e.to);
+      if (a && b) ghosts.push({ kind:'edge', a, b, old:g.old, key:'e' + e.from + '_' + e.to });
+    }
+    for (const it of L.items) ghosts.push({ kind:'node', it, old:g.old, key:'n' + it.n.id });
+  }
+  gGhost.style.display = ghosts.length ? '' : 'none';
+  gGhost.setAttribute('class', 'gGhost' + (ghosts.some(g => g.old) ? ' oldghost' : ''));
+  sync(gGhost, ghosts, g => g.key, (node, g) => {
+    node.setAttribute('class', g.old ? 'oldghost' : '');
+    if (g.kind === 'edge'){
+      if (!node._line){
+        node._line = svgEl('line', { class:'ghost-edge' });
+        node._lab  = svgEl('text', { class:'ghost-txt', 'text-anchor':'middle', style:'font-size:10.5px' });
+        node.append(node._line, node._lab);
+      }
+      node._line.setAttribute('x1', g.a.x); node._line.setAttribute('y1', g.a.y);
+      node._line.setAttribute('x2', g.b.x); node._line.setAttribute('y2', g.b.y);
+      node._lab.textContent = (g.b.n.key < g.a.n.key) ? 'L' : 'R';
+      node._lab.setAttribute('x', (g.a.x + g.b.x) / 2);
+      node._lab.setAttribute('y', (g.a.y + g.b.y) / 2 - 8);
+    } else {
+      if (!node._box){
+        node._box = svgEl('rect', { class:'ghost-node' });
+        node._cir = svgEl('circle', { class:'ghost-circle', r:21 });
+        node._tx  = svgEl('text', { class:'ghost-txt', 'text-anchor':'middle', dy:'5' });
+        node.append(node._box, node._cir, node._tx);
+      }
+      const it = g.it;
+      node._box.setAttribute('x', it.x - 18); node._box.setAttribute('y', it.y - 18);
+      node._box.setAttribute('width', 36); node._box.setAttribute('height', 36);
+      node._cir.setAttribute('cx', it.x); node._cir.setAttribute('cy', it.y);
+      node._tx.setAttribute('x', it.x); node._tx.setAttribute('y', it.y);
+      node._tx.textContent = it.n.key;
+    }
+  });
+
+  /* --- 旋转弧线箭头：pivot y → 上提的 x --- */
+  const arrows = [];
+  if (curGhost && hl.rot){
+    const qm = new Map(layout(curGhost.snap).items.map(it => [it.n.id, it]));
+    const p1 = qm.get(hl.rot[0]), p2 = qm.get(hl.rot[1]);
+    if (p1 && p2) arrows.push({ from:p1, to:p2, key:'a' + p1.n.id + p2.n.id,
+      label:(hl.mark && hl.mark.rotKind) || '旋转' });
+  }
+  sync(gArrows, arrows, a => a.key, (node, a) => {
+    if (!node._arc){
+      node._arc = svgEl('path', { class:'arc', fill:'none' });
+      node._arc.setAttribute('marker-end', 'url(#arrow)');
+      node._arc.setAttribute('style', 'stroke:#c46bd6;stroke-width:2.8;stroke-dasharray:7 5;opacity:.95');
+      node._txt = svgEl('text', { 'text-anchor':'middle',
+        style:'fill:#e7b8ff;font-size:12.5px;font-family:var(--mono);font-weight:600' });
+      node._txt2 = svgEl('text', { 'text-anchor':'middle',
+        style:'fill:#e7b8ff;font-size:14px;font-family:var(--mono);font-weight:700' });
+      node.append(node._arc, node._txt, node._txt2);
+    }
+    let dx = a.to.x - a.from.x, dy = a.to.y - a.from.y;
+    const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    const nx = -dy, ny = dx;
+    const bulge = Math.max(50, L * 0.36);
+    const x1 = a.from.x + dx * 25, y1 = a.from.y + dy * 25;
+    const x2 = a.to.x - dx * 25, y2 = a.to.y - dy * 25;
+    const mx = (x1 + x2) / 2 + nx * bulge, my = (y1 + y2) / 2 + ny * bulge;
+    node._arc.setAttribute('d', `M ${x1} ${y1} Q ${mx} ${my} ${x2} ${y2}`);
+    node._txt.setAttribute('x', mx);  node._txt.setAttribute('y', my - 8);
+    node._txt2.setAttribute('x', mx); node._txt2.setAttribute('y', my + 14);
+    node._txt.textContent = a.label;
+    node._txt2.textContent = '↑ 上提';
+  });
+
+  $('emptyTip').style.display = P.items.length ? 'none' : '';
+  renderCaption(s);
+  buildAxis();
+  $('stepInfo').textContent = `步骤 ${steps.length ? cursor + 1 : 0} / ${steps.length}`;
+  updateCode(s);
+  updateSidebar(base, hl);
+  $('verTag').textContent = 'v' + version;
+}
+
+function renderCaption(s){
+  const badge = $('capBadge'), txt = $('capText'), kv = $('capKv');
+  if (!s){
+    badge.textContent = '准备就绪'; badge.dataset.t = 'info';
+    let n0 = txt.childNodes[0];
+    if (!n0 || n0.nodeType !== 3){ n0 = document.createTextNode(''); txt.insertBefore(n0, txt.firstChild); }
+    n0.nodeValue = '输入数值开始操作，或点击「自动演示」。';
+    kv.textContent = ''; return;
+  }
+  badge.textContent = LAB[s.t] || s.t; badge.dataset.t = s.t;
+  let node = txt.childNodes[0];
+  if (!node || node.nodeType !== 3){ node = document.createTextNode(''); txt.insertBefore(node, txt.firstChild); }
+  node.nodeValue = s.msg;
+  kv.textContent = s.kv || '';
+}
+
+function buildAxis(){
+  const box = $('axis');
+  box.innerHTML = '';
+  if (!steps.length) return;
+  const frag = document.createDocumentFragment();
+  steps.forEach((s, i) => {
+    const b = document.createElement('div');
+    b.className = 'tick' + (s.t === 'rotate' ? ' rot' : '') + (i < cursor ? ' done' : '') + (i === cursor ? ' cur' : '');
+    b.textContent = i + 1;
+    b.title = '步骤 ' + (i + 1) + '：' + s.msg;
+    b.addEventListener('click', () => { pause(); goto(i); });
+    frag.append(b);
+  });
+  box.append(frag);
+  const cur = box.querySelector('.tick.cur');
+  if (cur && cur.scrollIntoView) cur.scrollIntoView({ block:'nearest', inline:'center', behavior:'smooth' });
+}
+
+/* ------------------------------------------------------------- 代码面板 */
+function syncCodeButtons(){
+  document.querySelectorAll('.codebar [data-code]').forEach(b => b.classList.toggle('on', b.dataset.code === followCode));
+  const ac = $('bAutoCode');
+  if (ac) ac.classList.toggle('on', autoCode);
+}
+function buildCode(kind, manual){
+  followCode = kind;
+  if (manual) autoCode = false;
+  const src = kind === 'insert' ? CODE_INSERT : kind === 'del' ? CODE_DELETE : CODE_ROT;
+  const pre = $('code');
+  pre.innerHTML = '';
+  src.split('\n').forEach(line => {
+    const span = document.createElement('span');
+    span.className = 'ln';
+    span.textContent = line === '' ? ' ' : line;
+    pre.append(span);
+  });
+  $('codeTag').textContent = kind === 'insert' ? 'insert()' : kind === 'del' ? 'remove()' : 'rotateLeft/Right';
+  syncCodeButtons();
+}
+function updateCode(s){
+  if (!autoCode || !s) return;
+  const kind = codeKindFor(s);
+  if (kind !== followCode) buildCode(kind);
+  const lines = (s.code && s.code.length) ? s.code : (LINES[followCode] && LINES[followCode][s.t]) || [];
+  const pre = $('code');
+  [...pre.children].forEach((c, i) => {
+    c.classList.toggle('hl', lines.includes(i + 1));
+    c.classList.toggle('rot', s.t === 'rotate' && lines.includes(i + 1));
+  });
+  const first = pre.querySelector('.ln.hl');
+  if (first && first.scrollIntoView) first.scrollIntoView({ block:'nearest' });
+}
+
+/* ------------------------------------------------------------- 侧栏 */
+function updateSidebar(base, hl){
+  const n = base.nodes.length, map = new Map(base.nodes.map(x => [x.id, x]));
+  $('stCount').textContent = n;
+  $('stHeight').textContent = n ? AVL.h(avl.root) : 0;
+  const rootN = base.nodes.find(x => x.id === base.root);
+  $('stRoot').textContent = rootN ? rootN.key : '—';
+  $('stMin').textContent = n ? Math.ceil(Math.log2(n + 1)) : 0;
+  $('stMax').textContent = n ? (1.4405 * Math.log2(n + 2) - 0.3277).toFixed(2) : 0;
+
+  const seq = [];
+  (function w(id){ const m = map.get(id); if (!m) return; w(m.l); seq.push(m); w(m.r); })(base.root);
+  $('stSeq').innerHTML = seq.length
+    ? seq.map(m => `<span class="${hl.act && hl.act.includes(m.id) ? 'now' : ''}">${m.key}</span>`).join(' → ') : '—';
+
+  const rows = [...base.nodes].sort((a, b) => a.key - b.key).map(m => {
+    const tr = document.createElement('tr');
+    if (hl.act && hl.act.includes(m.id)) tr.className = 'act';
+    else if (hl.rot && hl.rot.includes(m.id)) tr.className = 'rot';
+    else if (hl.bad && hl.bad.includes(m.id)) tr.className = 'act';
+    const cls = Math.abs(m.bf) > 1 ? 'bfn' : m.bf === 0 ? 'bf0' : 'bfp';
+    tr.innerHTML = `<td>${m.key}</td><td>${m.height}</td>`
+      + `<td class="${cls}">${m.bf > 0 ? '+' + m.bf : m.bf}</td>`
+      + `<td>${m.l ? (map.get(m.l) ? map.get(m.l).key : '·') : '·'}</td>`
+      + `<td>${m.r ? (map.get(m.r) ? map.get(m.r).key : '·') : '·'}</td>`;
+    return tr;
+  });
+  $('stTable').innerHTML = ''; rows.forEach(r => $('stTable').append(r));
+  $('stageTag').textContent = n ? `${n} 个结点 · 树高 ${AVL.h(avl.root)}` : '空树';
+}
+
+/* ------------------------------------------------------------- 回放控制 */
+function goto(i){
+  if (!steps.length) return;
+  cursor = Math.max(0, Math.min(steps.length - 1, i));
+  rebuildGhostCache();
+  render();
+}
+/* 幽灵层 = “上一次旋转前”的画面：由当前步骤之前的旋转步骤推导（与跳转方向无关） */
+function rebuildGhostCache(){
+  const list = [];
+  for (let k = 0; k <= cursor; k++){
+    const s = steps[k];
+    if (s.t === 'rotate' && s.rotIndex !== undefined && s.hl && s.hl.ghost)
+      list[s.rotIndex] = { snap:s.hl.ghost, at:k };
+  }
+  ghostCache.list = list;
+}
+function next(){ if (cursor < steps.length - 1) goto(cursor + 1); else pause(); }
+function prev(){ goto(cursor - 1); }
+function tickMs(s){ const base = s && s.t === 'rotate' ? 1150 : s && s.t === 'compare' ? 800 : 900; return base / speed; }
+function playLoop(token){
+  if (!playing || token !== playToken) return;
+  if (cursor >= steps.length - 1){ playing = false; updatePlayBtn(); return; }
+  timer = setTimeout(() => {
+    if (!playing || token !== playToken) return;
+    next(); playLoop(token);
+  }, tickMs(steps[cursor]));
+}
+function play(){
+  if (!steps.length) return;
+  if (cursor >= steps.length - 1) goto(0);
+  playing = true; playToken++; updatePlayBtn(); playLoop(playToken);
+}
+function pause(){ playing = false; playToken++; if (timer) clearTimeout(timer); timer = null; updatePlayBtn(); }
+function updatePlayBtn(){ $('bPlay').textContent = playing ? '❚❚ 暂停' : '▶ 播放'; }
+function waitWhilePlaying(){
+  return new Promise(res => {
+    if (!playing) return res();
+    const iv = setInterval(() => { if (!playing){ clearInterval(iv); res(); } }, 120);
+  });
+}
+
+/* ------------------------------------------------------------- 操作入口 */
+function readVal(){
+  const inp = $('val'), v = parseInt(inp.value, 10);
+  if (!Number.isFinite(v) || v < 0 || v > 999){
+    inp.classList.add('bad'); setTimeout(() => inp.classList.remove('bad'), 700);
+    log('提示', '请输入 0 ~ 999 之间的整数。', 'err'); return null;
+  }
+  return v;
+}
+function pushUndo(snap, text){
+  if (undoStack.length > 60) undoStack.shift();
+  undoStack.push({ snap, text });
+  $('bUndo').disabled = false;
+}
+function doInsert(v){
+  if (avl.find(v)){ log('插入', `值 ${v} 已存在，AVL 树不存储重复键。`, 'warn'); return false; }
+  const pre = avl.snapshot();
+  pushUndo(pre, `插入 ${v}`);
+  const list = stepInsert(avl, v, true);
+  const rot = list.some(s => s.t === 'rotate');
+  log('插入', `插入 ${v}${rot ? ' → 发生旋转，请观察幽灵层与弧线箭头' : ''}`,
+      rot ? 'rot' : 'done', () => { pause(); goto(0); });
+  setSteps(list, { kind:'ins', key:v, text:`插入 ${v}`, pre });
+  return true;
+}
+function doDelete(v){
+  if (!avl.find(v)){ log('删除', `树中不存在 ${v}，未做修改。`, 'warn'); return false; }
+  const pre = avl.snapshot();
+  pushUndo(pre, `删除 ${v}`);
+  const list = stepDelete(avl, v, true);
+  const rot = list.some(s => s.t === 'rotate');
+  log('删除', `删除 ${v}${rot ? ' → 触发再平衡旋转' : ''}`,
+      rot ? 'rot' : 'done', () => { pause(); goto(0); });
+  setSteps(list, { kind:'del', key:v, text:`删除 ${v}`, pre });
+  return true;
+}
+function doFind(v){
+  const pre = avl.snapshot();
+  const list = stepFind(avl, v);
+  const hit = list.some(s => s.msg.includes('命中'));
+  log('查找', `查找 ${v} → ${hit ? '命中' : '未找到'}`, hit ? 'done' : 'warn');
+  setSteps(list, { kind:'find', key:v, text:`查找 ${v}`, pre });
+  play();
+}
+function resetTree(list, note){
+  avl.root = null; __uid = 1; avl._rotSeq = 0;
+  undoStack.length = 0; $('bUndo').disabled = true;
+  for (const v of list) avl.insert(v, null);
+  steps = []; cursor = 0; playing = false; version++;
+  ghostCache.list = []; buildAxis(); render(); buildCode(followCode);
+  log('系统', note || '树已重置', '');
+}
+/* 把快照还原成一棵真树 */
+function treeFromSnapshot(snap){
+  const byId = new Map();
+  for (const n of snap.nodes) byId.set(n.id, { id:n.id, key:n.key, height:n.height, left:null, right:null });
+  for (const e of snap.edges){
+    const f = byId.get(e.from); if (!f) continue;
+    if (e.side === 'L') f.left = byId.get(e.to); else f.right = byId.get(e.to);
+  }
+  const root = snap.root ? byId.get(snap.root) : null;
+  (function fix(n){
+    if (!n) return 0;
+    const l = fix(n.left), r = fix(n.right);
+    n.height = 1 + Math.max(l, r); return n.height;
+  })(root);
+  /* 重新分配 id 计数器，避免与历史 id 冲突 */
+  let maxN = 0;
+  for (const id of byId.keys()){ const m = /^n(\d+)$/.exec(id); if (m) maxN = Math.max(maxN, +m[1]); }
+  __uid = Math.max(__uid, maxN + 1);
+  return root;
+}
+
+/* ------------------------------------------------------------- 自动演示 */
+async function runDemo(){
+  if (demoRun) return;
+  demoRun = true; $('bDemo').disabled = true;
+  resetTree([], '开始自动演示：树已清空');
+  pause();
+  let canceled = false;
+  for (const item of DEMO){
+    if (!demoRun) break;
+    log('演示', `→ ${item.op === 'ins' ? '插入' : '删除'} ${item.v}：${item.why}`, 'warn');
+    if (item.op === 'ins') doInsert(item.v); else doDelete(item.v);
+    play();
+    await waitWhilePlaying();
+    if (!demoRun) break;
+    /* 用户中途按暂停 / 单步，就停下自动演示，交还控制权 */
+    if (!playing && cursor < steps.length - 1){
+      canceled = true;
+      log('演示', '自动演示已暂停（可点「播放」继续看完当前这一步，或自行操作）。', 'warn');
+      break;
+    }
+    await new Promise(r => setTimeout(r, 380 / speed));
+  }
+  if (!canceled) log('演示', '自动演示结束。可点「撤销」回退，或用「随机插入」继续体验。', 'done');
+  demoRun = false; $('bDemo').disabled = false;
+}
+
+/* ------------------------------------------------------------- 平移 / 缩放 */
+(function panzoom(){
+  const stage = $('stage'), svg = $('svg'), hint = $('hint');
+  let drag = null, scale = 1, tx = 0, ty = 0;
+  const apply = () => { svg.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
+  svg.style.transition = 'transform .1s linear';
+  stage.addEventListener('mousedown', e => {
+    if (e.target === hint) return;
+    drag = { x:e.clientX, y:e.clientY, tx, ty }; stage.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', e => {
+    if (!drag) return;
+    tx = drag.tx + (e.clientX - drag.x); ty = drag.ty + (e.clientY - drag.y); apply();
+  });
+  window.addEventListener('mouseup', () => { drag = null; stage.style.cursor = ''; });
+  stage.addEventListener('wheel', e => {
+    e.preventDefault();
+    scale = Math.max(0.35, Math.min(3.2, scale * (e.deltaY < 0 ? 1.12 : 1 / 1.12))); apply();
+  }, { passive:false });
+  stage.addEventListener('dblclick', () => { scale = 1; tx = ty = 0; apply(); });
+})();
+
+/* ------------------------------------------------------------- 事件绑定 */
+$('bIns').addEventListener('click', () => { pause(); const v = readVal(); if (v !== null) doInsert(v); });
+$('bDel').addEventListener('click', () => { pause(); const v = readVal(); if (v !== null) doDelete(v); });
+$('bFind').addEventListener('click', () => { pause(); const v = readVal(); if (v !== null) doFind(v); });
+$('val').addEventListener('keydown', e => {
+  if (e.key === 'Enter'){ pause(); const v = readVal(); if (v !== null) doInsert(v); }
+});
+$('bRnd').addEventListener('click', () => {
+  pause();
+  const pool = []; for (let i = 1; i <= 99; i++) if (!avl.find(i)) pool.push(i);
+  if (!pool.length){ log('提示', '0~99 已经塞满啦。', 'warn'); return; }
+  const picks = [];
+  for (let i = 0; i < 3 && pool.length; i++) picks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  for (let i = 0; i < picks.length; i++){
+    if (i === picks.length - 1) doInsert(picks[i]);            // 最后一个播放动画
+    else { avl.insert(picks[i], null); log('插入', `快速插入 ${picks[i]}（不播放过程）`, ''); version++; }
+  }
+  render();
+});
+$('bClear').addEventListener('click', () => { pause(); demoRun = false; resetTree([], '已清空，回到空树。'); });
+$('bUndo').addEventListener('click', () => {
+  pause();
+  if (!undoStack.length){ log('提示', '没有可撤销的操作了。', 'warn'); return; }
+  const u = undoStack.pop();
+  avl.root = treeFromSnapshot(u.snap);
+  steps = []; cursor = 0; version++; ghostCache.list = [];
+  buildAxis(); render();
+  log('撤销', `已回退到「${u.text}」之前的状态。`, 'done');
+  $('bUndo').disabled = !undoStack.length;
+});
+$('bDemo').addEventListener('click', runDemo);
+$('bPlay').addEventListener('click', () => { playing ? pause() : play(); });
+$('bNext').addEventListener('click', () => { pause(); next(); });
+$('bPrev').addEventListener('click', () => { pause(); prev(); });
+$('spd').addEventListener('input', e => { speed = parseFloat(e.target.value); });
+$('bDetail').addEventListener('click', e => {
+  detail = !detail;
+  e.currentTarget.textContent = '旋转细分：' + (detail ? '开' : '关');
+  e.currentTarget.classList.toggle('on', detail);
+  log('设置', '旋转细分已' + (detail ? '开启（逐步解说旋转过程）' : '关闭（折叠为一步）'), '');
+  /* 用「操作前的快照」重放同一操作来重建步骤，这样树的结点 id 与当前完全一致 */
+  if (lastOp && lastOp.pre){
+    const pre = lastOp.pre;
+    const probe = new AVL();
+    probe.root = treeFromSnapshot(pre);
+    const list = lastOp.kind === 'del' ? stepDelete(probe, lastOp.key, detail)
+               : lastOp.kind === 'find' ? stepFind(probe, lastOp.key)
+               : stepInsert(probe, lastOp.key, detail);
+    setSteps(list, lastOp);
+  }
+});
+document.querySelectorAll('.codebar [data-code]').forEach(b => {
+  b.addEventListener('click', () => {
+    buildCode(b.dataset.code, true);            // 手动选代码 = 解锁“跟随步骤”
+    log('设置', '已切换到 ' + ($('codeTag').textContent || b.dataset.code) + ' 伪代码（跟随步骤已关闭）', '');
+    updateCode(steps.length ? steps[Math.min(cursor, steps.length - 1)] : null);
+  });
+});
+$('bAutoCode').addEventListener('click', e => {
+  autoCode = !autoCode;
+  e.currentTarget.classList.toggle('on', autoCode);
+  log('设置', '伪代码' + (autoCode ? '重新跟随步骤高亮' : '已解锁，可自由浏览'), '');
+  if (autoCode) updateCode(steps.length ? steps[Math.min(cursor, steps.length - 1)] : null);
+});
+window.addEventListener('keydown', e => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+  if (e.code === 'Space'){ e.preventDefault(); playing ? pause() : play(); }
+  else if (e.key === 'ArrowRight'){ e.preventDefault(); pause(); next(); }
+  else if (e.key === 'ArrowLeft'){ e.preventDefault(); pause(); prev(); }
+  else if (e.key.toLowerCase() === 'z' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); $('bUndo').click(); }
+});
+
+/* ------------------------------------------------------------- 启动 */
+buildCode('insert');
+resetTree([50, 30, 70, 20, 40, 60, 80], '已载入示例树：50 / 30 / 70 / 20 / 40 / 60 / 80（完全平衡）。');
+log('系统', '试试「自动演示」，或自己插入 10 看 LL 右旋、插入 65 看 RL 双旋。', 'done');
+</script>
+</body>
+</html>

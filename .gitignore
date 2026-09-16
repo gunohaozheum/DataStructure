@@ -1,0 +1,25 @@
+# Windows 系统文件
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# 编辑器 / 系统临时文件
+*.tmp
+*.bak
+*.swp
+*~
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# 依赖与构建产物（若以后加入前端工程）
+node_modules/
+dist/
+build/
+
+# 本地测试脚本产物
+_*.js
+_*/

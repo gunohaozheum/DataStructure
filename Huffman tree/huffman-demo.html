@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>哈夫曼树 / 哈夫曼编码 原理演示 · 贪心合并逐步细化</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#131c2e; --panel2:#18233a; --line:#25334f;
+    --text:#e8eef9; --muted:#93a2bd; --accent:#4cc9f0; --accent2:#8b5cf6;
+    --ok:#3ddc97; --warn:#ffb703; --bad:#ff6b8b; --merge:#c46bd6;
+    --shadow:0 8px 28px rgba(0,0,0,.42);
+    --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:radial-gradient(1200px 700px at 18% -10%,#16233c,#0b1220 60%) fixed;
+    color:var(--text);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;overflow:hidden;
+  }
+  .app{height:100vh;display:flex;flex-direction:column;gap:8px;padding:10px 12px 12px}
+  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .brand{display:flex;align-items:baseline;gap:9px}
+  .brand h1{font-size:16.5px;margin:0;letter-spacing:.4px}
+  .brand .sub{font-size:11.5px;color:var(--muted)}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);
+              box-shadow:0 0 12px var(--accent);display:inline-block}
+  .toolbar{margin-left:auto;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .group{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);
+         border-radius:10px;padding:5px 7px}
+  .group .lbl{font-size:11px;color:var(--muted)}
+  input[type=text],input[type=number]{background:#0d1728;border:1px solid var(--line);border-radius:7px;color:var(--text);
+    padding:5px 7px;font-family:var(--mono);font-size:12px;outline:none}
+  input[type=text]{width:190px}
+  input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(76,201,240,.14)}
+  input.bad{border-color:var(--bad);animation:shake .3s}
+  @keyframes shake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+  button{background:linear-gradient(180deg,#1d2b46,#16223a);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:6px 10px;font-size:12.5px;cursor:pointer;font-family:inherit;transition:.14s;white-space:nowrap}
+  button:hover{border-color:var(--accent);transform:translateY(-1px)}
+  button:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  button.primary{background:linear-gradient(180deg,#1f6f9c,#14506f);border-color:#3a9fd0}
+  button.small{padding:4px 8px;font-size:11.5px}
+  input[type=range]{width:88px;accent-color:var(--accent)}
+
+  main{flex:1;min-height:0;display:grid;grid-template-columns:236px minmax(0,1fr) 384px;gap:9px}
+  .panel{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);
+    border-radius:12px;box-shadow:var(--shadow);min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .panel>h2{margin:0;padding:8px 11px;font-size:11.5px;letter-spacing:.6px;color:#bcd0ea;border-bottom:1px solid var(--line);
+    background:rgba(255,255,255,.02);display:flex;align-items:center;gap:7px;text-transform:uppercase;flex:0 0 auto}
+  .panel>h2 .tag{margin-left:auto;font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0}
+  .body{padding:9px 10px;overflow:auto;flex:1;min-height:0}
+
+  /* 画布 */
+  .stage{flex:1;min-height:0;position:relative;overflow:hidden;background:
+    radial-gradient(700px 420px at 30% 0%,rgba(76,201,240,.07),transparent 70%),
+    repeating-linear-gradient(0deg,transparent 0 23px,rgba(255,255,255,.022) 23px 24px),
+    repeating-linear-gradient(90deg,transparent 0 23px,rgba(255,255,255,.022) 23px 24px)}
+  .stage svg{position:absolute;inset:0;width:100%;height:100%}
+  .empty-tip{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#5f7095;
+    font-size:14px;pointer-events:none}
+  .legend-mini{position:absolute;right:10px;top:9px;display:flex;gap:9px;font-size:11px;color:#8ea2c2;
+    background:rgba(9,15,28,.62);padding:4px 8px;border-radius:8px;border:1px solid var(--line);pointer-events:none}
+  .legend-mini i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+  .stage-hint{position:absolute;left:11px;bottom:8px;font-size:11px;color:#7d8db0;
+    background:rgba(9,15,28,.7);padding:4px 8px;border-radius:8px;border:1px solid var(--line);pointer-events:none}
+
+  /* 步骤说明 */
+  .caption{padding:9px 12px;border-bottom:1px solid var(--line);background:rgba(76,201,240,.045);
+    display:flex;gap:10px;align-items:flex-start;height:98px;flex:0 0 auto}
+  .badge{font-family:var(--mono);font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:6px;
+    white-space:nowrap;letter-spacing:.4px;flex:0 0 auto}
+  .badge[data-t=init]{background:#22406b;color:#9fd0ff}
+  .badge[data-t=scan]{background:#4a3a12;color:#ffdd8a}
+  .badge[data-t=pick]{background:#5c4410;color:#ffd479}
+  .badge[data-t=merge]{background:#3b2f5e;color:#d5c4ff}
+  .badge[data-t=place]{background:#2a3a5c;color:#cfe0f5}
+  .badge[data-t=done]{background:#1f5a55;color:#a9f5ea}
+  .badge[data-t=code]{background:#1c5340;color:#9ff0c4}
+  .badge[data-t=info]{background:#2a3a5c;color:#cfe0f5}
+  .cap-text{font-size:13px;line-height:1.5;flex:1;min-width:0;overflow:hidden}
+  #capText{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+  .cap-text .kv{font-family:var(--mono);font-size:11.5px;color:#9db0d0;display:block;margin-top:4px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* 步骤轴 */
+  .axis{display:flex;align-items:center;gap:3px;padding:6px 10px;border-top:1px solid var(--line);
+    background:rgba(0,0,0,.16);overflow-x:auto;min-height:34px;flex:0 0 auto}
+  .tick{flex:0 0 auto;min-width:20px;height:21px;border-radius:5px;background:#1b2740;border:1px solid #2b3a58;
+    color:#8fa3c4;font-family:var(--mono);font-size:10px;cursor:pointer;display:flex;align-items:center;
+    justify-content:center;padding:0 4px;transition:.12s}
+  .tick:hover{border-color:var(--accent);color:#fff}
+  .tick.merge{background:#3a2450;color:#e6c6ff;border-color:#6b3f8c}
+  .tick.code{background:#1b3f38;color:#a9f5ea;border-color:#2f6f62}
+  .tick.done{background:#1f5a55;color:#a9f5ea;border-color:#2f7a72}
+  .tick.past{opacity:.45}
+  .tick.cur{background:var(--accent);color:#06202c;font-weight:700;border-color:#fff;transform:scale(1.14);opacity:1}
+  .tick.merge.cur{background:var(--merge);color:#2a0f33}
+  .tick.code.cur{background:var(--ok);color:#052a20}
+  .axis.tiny{gap:2px}
+  .axis.tiny .tick{min-width:14px;font-size:9px;padding:0 2px}
+  .axis.dense{gap:2px}
+  .axis.dense .tick{min-width:10px;height:18px;font-size:8px;padding:0 1px}
+
+  /* 播放条 */
+  .player{display:flex;align-items:center;gap:8px;padding:7px 10px;border-top:1px solid var(--line);
+    background:rgba(255,255,255,.02);flex-wrap:wrap;flex:0 0 auto}
+  .player .sp{flex:1}
+  .stepinfo{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+  /* 代码 */
+  .panel.right{display:grid;grid-template-rows:auto minmax(0,1.25fr) auto minmax(0,.75fr)}
+  .codewrap{overflow:auto;min-height:0;padding:6px 0;background:#0f1728}
+  pre.code{margin:0;font-family:var(--mono);font-size:11.2px;line-height:1.5;counter-reset:l}
+  pre.code .ln{display:block;padding:0 10px 0 42px;position:relative;white-space:pre;color:#b9c8e0;
+    border-left:3px solid transparent}
+  pre.code .ln::before{counter-increment:l;content:counter(l);position:absolute;left:0;width:34px;
+    text-align:right;color:#4d5f80;font-size:10.5px}
+  pre.code .ln.hl{background:linear-gradient(90deg,rgba(76,201,240,.19),rgba(76,201,240,.02));
+    border-left-color:var(--accent);color:#fff}
+  pre.code .ln.hl.merge{background:linear-gradient(90deg,rgba(196,107,214,.24),rgba(196,107,214,.02));
+    border-left-color:var(--merge);color:#ffeaff}
+
+  /* 日志 */
+  .log{font-size:11.8px;line-height:1.45;padding:6px 10px}
+  .log .li{display:flex;gap:7px;padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.05);cursor:pointer}
+  .log .li:hover .m{text-decoration:underline}
+  .log .li .t{font-family:var(--mono);font-size:10.5px;color:#7f92b4;flex:0 0 48px;padding-top:1px}
+  .log .li .m{flex:1;color:#cbd8ec}
+  .log .li.merge .m{color:#e8c8ff}
+  .log .li.code .m{color:#a9f5ea}
+  .log .li.done .m{color:#a9f5ea}
+  .log .li.cur{background:rgba(76,201,240,.10);border-radius:5px}
+
+  /* 侧栏 */
+  .row-spec{display:flex;gap:6px;margin-bottom:8px}
+  .row-spec input{width:100%;min-width:0}
+  .kv-grid{display:grid;grid-template-columns:auto 1fr;gap:4px 9px;font-size:11.5px;align-items:center;margin-bottom:8px}
+  .kv-grid .k{color:var(--muted)}
+  .kv-grid .v{font-family:var(--mono);font-size:12px;color:#dfeaf9;text-align:right}
+  .kv-grid .v.hl{color:var(--ok)}
+  table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.2px;margin:2px 0 6px}
+  table.tbl th{color:var(--muted);font-weight:500;text-align:center;padding:3px 2px;border-bottom:1px solid var(--line)}
+  table.tbl td{text-align:center;padding:3px 2px;border-bottom:1px dashed rgba(255,255,255,.05)}
+  table.tbl td.ch{color:#fff;font-weight:700}
+  table.tbl td.cd{color:#9ff0c4;letter-spacing:.5px}
+  table.tbl tr.act td{background:rgba(76,201,240,.16);color:#fff}
+  table.tbl tr.done td{color:#cfe0f5}
+  table.tbl td.cd.miss{color:#4d5f80}
+  details.help{border-top:1px solid var(--line);margin-top:6px;padding-top:5px}
+  details.help summary{cursor:pointer;font-size:11.5px;color:#9fb4d4;outline:none}
+  details.help .c{font-size:11px;color:#a8bbd8;line-height:1.65;margin-top:5px}
+  details.help .c b{color:#d9e6f8;font-weight:600}
+  .legend{display:flex;flex-direction:column;gap:5px;font-size:11.2px;color:#b6c6de;margin-top:5px}
+  .legend .row{display:flex;align-items:center;gap:7px}
+  .sw{width:13px;height:13px;border-radius:50%;flex:0 0 auto;border:1px solid rgba(255,255,255,.25)}
+  .txtbox{font-family:var(--mono);font-size:11px;color:#c9d8ef;word-break:break-all;line-height:1.6;
+    background:rgba(0,0,0,.28);border-radius:7px;padding:6px 8px;margin-top:5px}
+  .txtbox .bits{color:#9ff0c4}
+  .txtbox .rm{color:#ffd479}
+  kbd{font-family:var(--mono);font-size:10.5px;background:#1b2740;border:1px solid #2f4266;border-radius:4px;padding:0 4px}
+
+  /* SVG */
+  line.edge{stroke:#3c5074;stroke-width:2.1}
+  line.edge.path{stroke:var(--accent);stroke-width:3.1}
+  line.edge.dim{stroke:#2a3854;opacity:.5}
+  text.elab{font-family:var(--mono);font-size:12.5px;font-weight:700;fill:#8ef0c8;text-anchor:middle;
+    paint-order:stroke;stroke:#0b1220;stroke-width:3.6px;stroke-linejoin:round}
+  .nd .ndc{fill:#1b2740;stroke:#4a628c;stroke-width:2;transition:fill .2s,stroke .2s}
+  .nd.inner .ndc{fill:#252c56;stroke:#7b6ed6}
+  .nd text{text-anchor:middle;pointer-events:none}
+  .nd .ndkey{font-family:var(--mono);font-size:15px;font-weight:700;fill:#eaf2ff}
+  .nd.inner .ndkey{font-size:13.5px;fill:#d8ccff}
+  .nd .ndw{font-family:var(--mono);font-size:10.5px;fill:#8fa3c4}
+  .nd .ndcode{font-family:var(--mono);font-size:12px;font-weight:700;fill:#9ff0c4;
+    paint-order:stroke;stroke:#0b1220;stroke-width:3.2px;stroke-linejoin:round}
+  .nd.scan .ndc{stroke:var(--warn);stroke-width:2.4;stroke-dasharray:5 4}
+  .nd.dim{opacity:.3}
+  .nd.pick .ndc{fill:#6b4400;stroke:var(--warn);stroke-width:3.4}
+  .nd.pick .ndkey,.nd.pick .ndw{fill:#ffe9b0}
+  .nd.new .ndc{fill:#12503c;stroke:var(--ok);stroke-width:3.4}
+  .nd.new .ndkey{fill:#c8ffe6}
+  .nd.root .ndc{fill:#14506f;stroke:var(--accent);stroke-width:3.6}
+  .nd.path .ndc{stroke:var(--accent);stroke-width:3}
+  .nd.codeok .ndc{fill:#15503f;stroke:#2f8f70;stroke-width:2.6}
+  .nd.cur .ndc{stroke:#fff;stroke-width:3.6}
+  circle.halo{fill:none;stroke:var(--warn);stroke-width:2.4;transform-box:fill-box;transform-origin:center;
+    animation:halo 1.35s ease-out infinite}
+  @keyframes halo{0%{transform:scale(.92);opacity:.85}100%{transform:scale(1.75);opacity:0}}
+
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#2a3a58;border-radius:9px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#3b5182;background-clip:content-box}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  @media(max-width:1420px){ main{grid-template-columns:220px minmax(0,1fr) 350px} input[type=text]{width:150px} }
+  @media(max-width:1180px){
+    body{overflow:auto} .app{height:auto;min-height:100vh} main{grid-template-columns:1fr}
+    .stage{height:56vh} .panel.right{grid-template-rows:auto 240px auto 200px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>哈夫曼树 / 哈夫曼编码 原理演示</h1>
+      <span class="sub">贪心合并 · 编码 / 译码 / WPL</span>
+    </div>
+    <div class="toolbar">
+      <div class="group">
+        <span class="lbl">预设</span>
+        <button class="small" id="p1">经典 A~F</button>
+        <button class="small" id="p2">mississippi</button>
+        <button class="small" id="p3">中文短句</button>
+      </div>
+      <div class="group">
+        <input id="txt" type="text" value="mississippi river" placeholder="输入文本，自动统计频度">
+        <button class="primary small" id="bCalc">按文本构建</button>
+      </div>
+      <div class="group">
+        <button class="primary small" id="bDemo">▶ 自动演示</button>
+        <span class="lbl">速度</span>
+        <input id="spd" type="range" min="0.4" max="3" step="0.2" value="1.2">
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- 左栏：数据与编码表 -->
+    <section class="panel">
+      <h2>数据 <span class="tag" id="dataTag">森林 0</span></h2>
+      <div class="body">
+        <div class="row-spec">
+          <input id="freq" type="text" value="A=5,B=9,C=12,D=13,E=16,F=45" title="格式：字符=频度，用逗号或空格分隔">
+          <button class="small primary" id="bApply">构建</button>
+        </div>
+        <div class="kv-grid">
+          <span class="k">字符数 n</span><span class="v" id="stN">0</span>
+          <span class="k">森林规模</span><span class="v" id="stForest">0</span>
+          <span class="k">内部结点</span><span class="v" id="stInner">0</span>
+          <span class="k">WPL</span><span class="v" id="stWpl">—</span>
+          <span class="k">平均码长</span><span class="v" id="stAvg">—</span>
+          <span class="k">等长编码</span><span class="v" id="stFix">—</span>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>字符</th><th>权值</th><th>编码</th><th>位数</th></tr></thead>
+          <tbody id="tblBody"></tbody>
+        </table>
+        <details class="help"><summary>原理：为什么这样合并最优</summary>
+          <div class="c">
+            <b>目标</b>：频度高的字符编码短、频度低的编码长，使总长度 WPL 最小。<br>
+            <b>贪心</b>：每次取权值最小的两棵树合并成一棵新树，新树权值 = 两棵之和。<br>
+            <b>为什么正确</b>：合并这两棵树是“躲不掉”的一步，代价 = 两树权值之和；先让最小的两个深（编码长），总代价就最小。<br>
+            <b>WPL</b> = Σ 频度 × 编码长度 = 所有内部结点权值之和（每个内部结点代表它子树里的字符被“多编了一位”）。<br>
+            <b>前缀码</b>：字符只放在叶子上，任何编码都不是另一个的前缀，译码不会歧义。<br>
+            <b>复杂度</b>：最小堆实现 O(n log n)；有序表实现 O(n²)。
+          </div>
+        </details>
+        <details class="help"><summary>图例 / 快捷键</summary>
+          <div class="legend">
+            <div class="row"><span class="sw" style="background:#1b2740;border-color:#4a628c"></span>叶结点：字符 + 下方频度</div>
+            <div class="row"><span class="sw" style="background:#252c56;border-color:#7b6ed6"></span>内部结点：权值 = 子树频度和</div>
+            <div class="row"><span class="sw" style="background:#6b4400;border-color:#ffb703"></span>本轮取出的两棵最小树</div>
+            <div class="row"><span class="sw" style="background:#12503c;border-color:#3ddc97"></span>刚合并产生的新结点</div>
+            <div class="row"><span class="sw" style="background:#15503f;border-color:#2f8f70"></span>编码已确定的叶子</div>
+            <div class="row"><span class="sw" style="background:transparent;border:1px dashed #ffb703"></span>参与比较的候选结点</div>
+          </div>
+          <div class="c" style="margin-top:6px">
+            <kbd>空格</kbd> 播放/暂停 · <kbd>←</kbd> <kbd>→</kbd> 单步 · 点击步骤轴方块跳转 · 点击日志行跳转<br>
+            画布：滚轮缩放 · 按住拖动平移 · 双击复位 · 字符多时图形会自动缩小，滚轮放大即可看细节
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- 中栏：画布 -->
+    <section class="panel">
+      <h2>森林 → 哈夫曼树 <span class="tag" id="stageTag"></span></h2>
+      <div class="stage" id="stage">
+        <svg id="svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="legend-mini">
+          <span><i style="background:#1b2740;border:1px solid #4a628c"></i>叶</span>
+          <span><i style="background:#252c56;border:1px solid #7b6ed6"></i>内部</span>
+          <span><i style="background:#6b4400;border:1px solid #ffb703"></i>最小两棵</span>
+          <span><i style="background:#12503c;border:1px solid #3ddc97"></i>新结点</span>
+        </div>
+        <div class="empty-tip" id="emptyTip">输入字符与频度后开始构建</div>
+        <div class="stage-hint" id="stageHint">左 = 0 · 右 = 1</div>
+      </div>
+      <div class="caption">
+        <span class="badge" id="capBadge" data-t="info">准备就绪</span>
+        <div class="cap-text">
+          <span id="capText">点击「自动演示」，或直接单步查看哈夫曼树是如何从森林一步步合并出来的。</span>
+          <span class="kv" id="capKv"></span>
+        </div>
+      </div>
+      <div class="axis" id="axis"></div>
+      <div class="player">
+        <button id="bPrev" title="上一步 (←)">◀</button>
+        <button class="primary" id="bPlay" title="播放 / 暂停 (空格)">▶ 播放</button>
+        <button id="bNext" title="下一步 (→)">▶</button>
+        <span class="stepinfo" id="stepInfo">步骤 0/0</span>
+        <span class="sp"></span>
+        <span class="stepinfo">滚轮缩放 · 拖动平移 · 双击复位</span>
+      </div>
+    </section>
+
+    <!-- 右栏：伪代码 + 日志 -->
+    <section class="panel right">
+      <h2>伪代码 <span class="tag" id="codeTag">构建 Huffman(C)</span></h2>
+      <div class="codewrap"><pre class="code" id="code"></pre></div>
+      <h2>构建日志 <span class="tag">点击可跳转</span></h2>
+      <div class="body log" id="log"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+/* =====================================================================
+   哈夫曼树演示 —— 脚本分三层：
+   1) 结点模型 + buildModel()：纯计算，把“贪心合并”的每一步都录成一个快照
+   2) 布局 / 绘制：把快照里的森林画成 SVG
+   3) 界面：步骤轴、播放器、伪代码高亮、日志
+   ===================================================================== */
+
+/* ---------------------- 1. 结点模型 ---------------------- */
+let UID = 0, ORD = 0;                       // UID: 结点编号  ORD: 生成顺序（权值相同时的稳定次序）
+const nid = () => 'n' + (++UID);
+function mkLeaf(ch, w){ return { id:nid(), ch:String(ch), w:w, leaf:true,  ord:++ORD, left:null, right:null }; }
+function mkInner(w, l, r){ return { id:nid(), ch:null, w:w, leaf:false, ord:++ORD, left:l, right:r }; }
+function cloneT(t){
+  return t ? { id:t.id, ch:t.ch, w:t.w, leaf:t.leaf, ord:t.ord, left:cloneT(t.left), right:cloneT(t.right) } : null;
+}
+const forestSnap = f => f.map(cloneT);
+const cmpW = (a, b) => (a.w - b.w) || (a.ord - b.ord);   // 权值升序；权值相同按生成先后
+const treeName = t => t.leaf ? `${t.ch}(${t.w})` : `z(${t.w})`;
+
+/* ---------------------- 2. 伪代码文本 ---------------------- */
+const CODE_BUILD = [
+  'Huffman(C):                            // C = 字符集，w(c) = 该字符频度',
+  '    Q ← 最小优先队列（按权值升序）',
+  '    for c in C:                        // ① 初始化森林',
+  '        Q.add( 单结点树(c, w(c)) )      //    每个字符 = 一棵只有根结点的树',
+  '    while Q.size > 1:                  // ② 反复合并，直到只剩一棵树',
+  '        x ← Q 中权值最小的树             //    取最小的',
+  '        Q.remove(x)',
+  '        y ← Q 中权值次小的树             //    取次小的',
+  '        Q.remove(y)',
+  '        z ← 新结点( w = x.w + y.w )     // ③ 合并成一棵新树，权值相加',
+  '        z.left ← x ;  z.right ← y       //    左孩子边记 0，右孩子边记 1',
+  '        Q.add(z)                        // ④ 新树放回队列并重新保持有序',
+  '    return Q 中唯一的树 = 哈夫曼树       // ⑤ 森林只剩一棵，树建成',
+  ''
+];
+const CODE_CODE = [
+  '// ─── 生成编码：从根出发，向左记 0、向右记 1 ───',
+  'AssignCode(node, code):',
+  '    if node 是叶子:',
+  '        codeTable[node.ch] ← code      // 根→叶的路径就是该字符的编码',
+  '        return',
+  '    AssignCode(node.left , code + "0") // 左分支追加 0',
+  '    AssignCode(node.right, code + "1") // 右分支追加 1',
+  '',
+  '// ─── 编码：逐字符查表拼接 ───',
+  'Encode(text): return join( codeTable[ch] for ch in text )',
+  '',
+  '// ─── 译码：从根按位走，遇叶子输出字符并回到根 ───',
+  'Decode(bits):',
+  '    node ← root',
+  '    for bit in bits:',
+  '        node ← (bit == "0") ? node.left : node.right',
+  '        if node 是叶子: 输出 node.ch ;  node ← root',
+  '// WPL = Σ w(ch) × len(code(ch)) = Σ 所有内部结点的权值'
+];
+
+/* ---------------------- 3. 构建步骤模型 ---------------------- */
+function buildModel(chars, srcText){
+  UID = 0; ORD = 0;                          // 每次重建都从头编号，保证 id 稳定
+  const steps = [], logs = [];
+  let forest = chars.map(c => mkLeaf(c.ch, c.w)).sort(cmpW);
+  const assigned = {}, shownCode = {};       // assigned: ch→code；shownCode: 结点 id→code（标在叶子上）
+  const add = o => { steps.push(o); return steps.length - 1; };
+
+  /* ① 初始化：每个字符一棵单结点树 */
+  add({ t:'init', title:'① 初始化森林', codeKind:'build', codeLine:[3,4],
+        forest:forestSnap(forest), codes:{}, marks:{ scan:forest.map(t => t.id) },
+        msg:`把 ${forest.length} 个字符各自看成一棵“只有根结点”的树，根上的权值就是它的频度。此时森林里有 ${forest.length} 棵树，权值最小的会最先被合并。`,
+        kv:`森林 = { ${forest.map(treeName).join(' , ')} }` });
+  logs.push({ step:0, tag:'初始化', cls:'', text:`森林 = { ${forest.map(treeName).join(', ')} }` });
+
+  /* ② 反复合并：找两个最小 → 取出 → 合并 → 放回 */
+  let round = 0;
+  while (forest.length > 1){
+    round++;
+    forest = forest.slice().sort(cmpW);
+    const x = forest[0], y = forest[1], rest = forest.slice(2);
+    const ws = forest.map(t => t.w);
+    const tie = ws.some((w, i) => ws.indexOf(w) !== i);
+    const tieNote = tie ? '　（有权值相同的树，按“先生成的排在前面”的稳定次序取）' : '';
+
+    /* 2.1 扫描比较，找最小与次小 */
+    add({ t:'scan', title:'② 扫描：找最小的两棵', codeKind:'build', codeLine:[6,8],
+          forest:forestSnap(forest), codes:Object.assign({}, assigned),
+          marks:{ scan:forest.map(t => t.id) },
+          msg:`第 ${round} 轮：在森林的 ${forest.length} 棵树中比较根结点的权值，找出最小的两棵——按根权值升序排好后，表头两棵就是“最小”与“次小”。`,
+          kv:`根权值升序：${ws.join(' ≤ ')}　→　最小 ${treeName(x)}，次小 ${treeName(y)}${tieNote}` });
+
+    /* 2.2 取出这两棵树 */
+    add({ t:'pick', title:'③ 取出两棵最小树', codeKind:'build', codeLine:[7,9],
+          forest:forestSnap(forest), codes:Object.assign({}, assigned),
+          marks:{ pick:[x.id, y.id], dim:rest.map(t => t.id) },
+          msg:`取出 x = ${treeName(x)} 与 y = ${treeName(y)}，它们将做新结点的左右孩子；其余 ${rest.length} 棵树先留在队列里（图中已变暗）。`,
+          kv:`x = ${treeName(x)}　y = ${treeName(y)}　x.w + y.w = ${x.w} + ${y.w} = ${x.w + y.w}` });
+
+    /* 2.3 合并成新内部结点 */
+    const z = mkInner(x.w + y.w, x, y);
+    forest = [z, ...rest];
+    add({ t:'merge', title:'④ 合并成新结点 z', codeKind:'build', codeLine:[10,11],
+          forest:forestSnap(forest), codes:Object.assign({}, assigned),
+          marks:{ neu:z.id, pick:[x.id, y.id] },
+          msg:`新建内部结点 z，权值 = ${x.w} + ${y.w} = ${z.w}：让 ${treeName(x)} 当左孩子、${treeName(y)} 当右孩子（左 = 编码位 0，右 = 编码位 1）。内部结点权值 = 它子树里所有字符频度之和。`,
+          kv:`z.w = x.w + y.w = ${x.w} + ${y.w} = ${z.w}` });
+
+    /* 2.4 放回队列并重新有序 */
+    forest = forest.slice().sort(cmpW);
+    add({ t:'place', title:'⑤ 新树放回队列', codeKind:'build', codeLine:[12],
+          forest:forestSnap(forest), codes:Object.assign({}, assigned),
+          marks:{ neu:z.id },
+          msg:`把新树 z(${z.w}) 放回队列，并重新按权值排序，保证下一轮还能直接取到最小的两棵。森林规模：${forest.length + 1} → ${forest.length}。`,
+          kv:`森林 = { ${forest.map(treeName).join(' , ')} }` });
+    logs.push({ step:steps.length-1, tag:`第${round}轮`, cls:'merge',
+                text:`合并 ${treeName(x)} + ${treeName(y)} → z(${z.w})；剩余 ${forest.length} 棵树` });
+  }
+
+  /* ③ 森林只剩一棵 = 哈夫曼树 */
+  const root = forest[0];
+  add({ t:'done', title:'⑥ 哈夫曼树建成', codeKind:'build', codeLine:[13],
+        forest:[cloneT(root)], codes:Object.assign({}, assigned), marks:{ root:root.id },
+        msg:`森林里只剩一棵树，它就是哈夫曼树。树根权值 ${root.w} = 全体字符频度之和 = 待编码内容的总字符数。频度高的字符离根近（编码短），频度低的离根远（编码长）。`,
+        kv:`根权值 = ${root.w}　内部结点数 = ${chars.length - 1}` });
+  logs.push({ step:steps.length-1, tag:'建成', cls:'done', text:`哈夫曼树建成，根权值 = ${root.w}` });
+
+  /* ④ 遍历树：算出每个叶子的深度与 0/1 路径 */
+  const leaves = [], pathOf = {}, depthOf = {}, codeOf = {};
+  (function walk(n, path, d){
+    if (!n) return;
+    pathOf[n.id] = path; depthOf[n.id] = d;
+    if (!n.left && !n.right){ leaves.push(n); codeOf[n.id] = path.map(e => e.bit).join(''); return; }
+    if (n.left)  walk(n.left,  path.concat([{ bit:'0', from:n.id, to:n.left.id }]),  d + 1);
+    if (n.right) walk(n.right, path.concat([{ bit:'1', from:n.id, to:n.right.id }]), d + 1);
+  })(root, [], 0);
+
+  add({ t:'code-start', title:'⑦ 约定编码规则', codeKind:'code', codeLine:[1,2],
+        forest:[cloneT(root)], codes:{}, marks:{ showBits:true },
+        msg:`编码规则：从根出发，向左走记 0、向右走记 1，到达叶子时路径上的 0/1 序列就是该字符的编码。字符只存放在叶子上，所以任何编码都不是另一个编码的前缀（前缀码），译码时不会出现歧义。`,
+        kv:`叶子数 = 字符数 = ${leaves.length}　下一步逐个叶子读出它的编码` });
+
+  leaves.forEach((lf, i) => {
+    const path = pathOf[lf.id], code = codeOf[lf.id];
+    assigned[lf.ch] = code;
+    shownCode[lf.id] = code;
+    const nodeIds = [root.id].concat(path.map(e => e.to));
+    const bitsTxt = path.length ? path.map(e => e.bit).join(' → ') : '（根即叶子）';
+    add({ t:'code-leaf', title:'⑧ 生成叶子编码', codeKind:'code', codeLine:[3,4,6,7],
+          forest:[cloneT(root)], codes:Object.assign({}, assigned),
+          marks:{ showBits:true, path:nodeIds, pathEdges:path.map(e => e.from + '>' + e.to),
+                  code:Object.assign({}, shownCode), done:leaves.slice(0, i).map(l => l.id), cur:lf.id,
+                  dim:leaves.slice(i + 1).map(l => l.id) },
+          msg:`从根出发依次走 ${bitsTxt}（共 ${code.length} 步）到达叶子「${lf.ch}」，所以 ${lf.ch} 的编码 = ${code}，长度 ${code.length}。它出现 ${lf.w} 次，将占 ${lf.w} × ${code.length} = ${lf.w * code.length} bit。`,
+          kv:`${lf.ch}(${lf.w}) → ${code}　长度 ${code.length}` });
+    logs.push({ step:steps.length-1, tag:'编码', cls:'code', text:`${lf.ch}(${lf.w}) → ${code}` });
+  });
+
+  /* ⑤ WPL 与等长编码对比 */
+  const totalW = leaves.reduce((a, l) => a + l.w, 0);
+  const wpl = leaves.reduce((a, l) => a + l.w * codeOf[l.id].length, 0);
+  const fixLen = Math.max(1, Math.ceil(Math.log2(leaves.length)));
+  const avg = wpl / totalW;
+  const savePct = (1 - wpl / (totalW * fixLen)) * 100;
+  const terms = leaves.map(l => `${l.w}×${codeOf[l.id].length}`).join(' + ');
+  let innerTotal = 0;                        // Σ 内部结点权值，应当等于 WPL
+  (function acc(n){ if (!n || n.leaf) return; innerTotal += n.w; acc(n.left); acc(n.right); })(root);
+  add({ t:'wpl', title:'⑨ 计算 WPL', codeKind:'code', codeLine:[18],
+        forest:[cloneT(root)], codes:Object.assign({}, assigned),
+        marks:{ root:root.id, showBits:true, done:leaves.map(l => l.id), code:Object.assign({}, shownCode) },
+        msg:`WPL = Σ 频度 × 编码长度 = ${terms} = ${wpl} bit。这个值也等于树中所有内部结点权值之和（每个内部结点代表“它子树里的字符又被多编了一位”）。`,
+        kv:`平均码长 = ${wpl}/${totalW} = ${avg.toFixed(2)} bit/字符　内部结点权值之和 = ${innerTotal}（= WPL ✓）　等长编码 ⌈log₂${leaves.length}⌉ = ${fixLen} bit/字符 → ${totalW * fixLen} bit　哈夫曼省 ${savePct.toFixed(1)}%` });
+  logs.push({ step:steps.length-1, tag:'WPL', cls:'done',
+              text:`WPL = ${terms} = ${wpl} bit；等长编码需 ${totalW * fixLen} bit，省 ${savePct.toFixed(1)}%` });
+
+  /* ⑥ 用实例演示编码与译码 */
+  const pool = srcText ? Array.from(srcText).filter(ch => assigned[ch]) : leaves.map(l => l.ch);
+  let sample = '';
+  for (const ch of pool){ if (sample.length >= 18) break; sample += ch; }
+  if (!sample) sample = leaves.map(l => l.ch).join('');
+  const bits = Array.from(sample).map(ch => assigned[ch]).join('');
+  add({ t:'encode', title:'⑩ 编码实例：文本 → 0/1 串', codeKind:'code', codeLine:[9,10],
+        forest:[cloneT(root)], codes:Object.assign({}, assigned),
+        marks:{ showBits:true, done:leaves.map(l => l.id), code:Object.assign({}, shownCode) },
+        msg:`把示例文本「${sample}」逐字符查表、把编码首尾拼接，得到 0/1 串（高频字符占的位更少，所以整体变短）。`,
+        kv:`「${sample}」→ ${bits}　共 ${bits.length} bit（等长编码需 ${sample.length * fixLen} bit）` });
+  const trace = Array.from(sample).map(ch => `${assigned[ch]}→${ch}`).join(' | ');
+  add({ t:'decode', title:'⑪ 译码实例：0/1 串 → 文本', codeKind:'code', codeLine:[13,14,15,16,17],
+        forest:[cloneT(root)], codes:Object.assign({}, assigned),
+        marks:{ showBits:true, done:leaves.map(l => l.id), code:Object.assign({}, shownCode) },
+        msg:`译码：从根开始逐位读，读到 0 往左走、读到 1 往右走；一旦走到叶子就输出该字符，然后回到根继续读下一位。因为编码是前缀码，所以切分方式唯一，不会读错。`,
+        kv:`${trace}` });
+  logs.push({ step:steps.length-1, tag:'编码', cls:'code', text:`「${sample}」→ ${bits}` });
+  logs.push({ step:steps.length-1, tag:'译码', cls:'code', text:`${trace.replace(/\|/g, '  ')} → 还原「${sample}」` });
+
+  return {
+    steps, logs,
+    leaves: leaves.map(l => ({ id:l.id, ch:l.ch, w:l.w, depth:depthOf[l.id], code:codeOf[l.id] })),
+    wpl, totalW, fixLen, avg, savePct, sample, bits, rootW:root.w
+  };
+}
+
+/* ---------------------- 4. 几何布局（森林 → 像素） ---------------------- */
+const R = 20, DX = 64, DY = 74, GAP = 0.55, PADX = R + 26, PADT = 32, PADB = 46;
+
+/* 单棵树的局部坐标：u = 以“叶子序号”为单位的横坐标，d = 深度 */
+function localTree(root){
+  const items = [], edges = [];
+  let leaf = 0, maxD = 0;
+  (function walk(n, d){
+    if (!n) return null;
+    if (d > maxD) maxD = d;
+    let u;
+    if (n.left || n.right){                       // 内部结点：居中于两个孩子之间
+      const a = walk(n.left, d + 1), b = walk(n.right, d + 1);
+      const xs = []; if (a) xs.push(a.u); if (b) xs.push(b.u);
+      u = xs.reduce((p, q) => p + q, 0) / xs.length;
+    } else { u = leaf++; }                        // 叶子：按中序依次占位
+    items.push({ node:n, u:u, d:d });
+    if (n.left)  edges.push({ a:n.id, b:n.left.id,  bit:'0' });
+    if (n.right) edges.push({ a:n.id, b:n.right.id, bit:'1' });
+    return { u:u, d:d };
+  })(root, 0);
+  return { items, edges, units:Math.max(leaf, 1), depth:maxD + 1 };
+}
+
+/* 树很多时按“叶子宽度”分行打包：每行约 10 棵，行宽尽量均衡，避免整幅图过宽 */
+function packRows(trees, gap){
+  const k = trees.length;
+  if (!k) return [];
+  const totalU = trees.reduce((a, T) => a + T.units, 0) + gap * (k - 1);
+  const rowsWanted = Math.max(1, Math.ceil(k / 10));
+  const budget = Math.max(totalU / rowsWanted * 1.12, 4);
+  const rows = [];
+  let cur = [], curU = 0;
+  const flush = () => { if (cur.length){ rows.push(cur); cur = []; curU = 0; } };
+  trees.forEach(T => {
+    if (cur.length && curU + gap + T.units > budget) flush();
+    curU += (cur.length ? gap : 0) + T.units;
+    cur.push(T);
+  });
+  flush();
+  return rows;
+}
+
+/* 整片森林：按队列顺序从左到右、必要时换行，返回可直接绘制的坐标 */
+function layoutForest(forest){
+  const trees = forest.map(localTree);
+  const gap = forest.length >= 7 ? 0.30 : GAP;      // 树多时收紧间距，让整幅图不至于过宽
+  const rows = packRows(trees, gap);
+  const rowU = rows.map(r => r.reduce((a, T) => a + T.units, 0) + gap * (r.length - 1));
+  const rowD = rows.map(r => Math.max.apply(null, r.map(T => T.depth).concat([1])));
+  const maxU = Math.max.apply(null, rowU.concat([1]));
+  const dx = maxU > 18 ? 45 : maxU > 12 ? 54 : DX;  // 一行太宽时收紧水平间距
+  const rowW = rowU.map(u => u * dx + 2 * PADX);
+  const rowH = rowD.map(d => (d - 1) * DY + PADT + R + PADB);
+  const cw = Math.max.apply(null, rowW.concat([540]));
+  const ch = rowH.reduce((a, b) => a + b, 0);
+  const W = Math.max(cw, 540), H = Math.max(ch, 300);   // 下限：避免小图被放得过大
+  const nodes = [], edges = [], pos = {};
+  let yTop = (H - ch) / 2;                              // 整体竖向居中
+  rows.forEach((row, ri) => {
+    const ox = (W - rowW[ri]) / 2;                      // 每行横向居中
+    let cursor = 0;
+    row.forEach(T => {
+      T.items.forEach(it => {
+        const x = (cursor + it.u) * dx + PADX + ox, y = yTop + it.d * DY + PADT;
+        pos[it.node.id] = { x:x, y:y };
+        nodes.push({ node:it.node, x:x, y:y });
+      });
+      T.edges.forEach(e => edges.push(e));
+      cursor += T.units + gap;
+    });
+    yTop += rowH[ri];
+  });
+  return { nodes, edges, pos, rows:rows.length, W:Math.round(W), H:Math.round(H) };
+}
+
+/* ---------------------- 5. 绘制 ---------------------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+let stageRows = 1;                                   // 当前画面里森林占了几行
+let stageFit = 1;                                    // 自动缩放的倍率（用于判断是否太小）
+let pz = { k:1, x:0, y:0 };                          // 手工缩放/平移（叠加在自动适配之上）
+
+function render(){
+  const svg = $('svg');
+  const s = steps[Math.min(cursor, steps.length - 1)];
+  if (!s || !s.forest.length){
+    svg.innerHTML = '';
+    $('emptyTip').style.display = 'flex';
+    return;
+  }
+  $('emptyTip').style.display = 'none';
+  const M = s.marks || {};
+  const L = layoutForest(s.forest);
+  svg.setAttribute('viewBox', `0 0 ${L.W} ${L.H}`);
+  stageRows = L.rows;
+
+  const pick = new Set(M.pick || []), scan = new Set(M.scan || []), dim = new Set(M.dim || []);
+  const done = new Set(M.done || []), path = new Set(M.path || []), pathE = new Set(M.pathEdges || []);
+  let out = '';
+  const sw = $('stage').clientWidth || 0, sh = $('stage').clientHeight || 0;
+  stageFit = (sw && sh) ? Math.min(sw / L.W, sh / L.H) : 1;
+
+  /* 连线（先画，压在结点下面） */
+  L.edges.forEach(e => {
+    const a = L.pos[e.a], b = L.pos[e.b];
+    if (!a || !b) return;
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    const x1 = a.x + ux * R, y1 = a.y + uy * R;
+    const x2 = b.x - ux * (R + 2), y2 = b.y - uy * (R + 2);
+    const cls = 'edge' + (pathE.has(e.a + '>' + e.b) ? ' path' : '') + (dim.has(e.a) ? ' dim' : '');
+    out += `<line class="${cls}" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>`;
+    if (M.showBits){                                     // 编码阶段：边上标出 0 / 1
+      const mx = a.x + dx * 0.45 - uy * 12, my = a.y + dy * 0.45 + ux * 12;
+      out += `<text class="elab" x="${mx.toFixed(1)}" y="${(my + 4.4).toFixed(1)}">${e.bit}</text>`;
+    }
+  });
+
+  /* 结点 */
+  L.nodes.forEach(it => {
+    const n = it.node, id = n.id, x = it.x, y = it.y;
+    const cls = ['nd', n.leaf ? 'leaf' : 'inner'];
+    if (M.neu === id) cls.push('new');
+    else if (pick.has(id)) cls.push('pick');
+    else if (scan.has(id)) cls.push('scan');
+    if (M.root === id) cls.push('root');
+    if (path.has(id)) cls.push('path');
+    if (done.has(id)) cls.push('codeok');
+    if (M.cur === id) cls.push('cur');
+    if (dim.has(id)) cls.push('dim');
+    const halo = (M.neu === id || pick.has(id) || M.root === id)
+      ? `<circle class="halo" cx="${x}" cy="${y}" r="${R}"/>` : '';
+    const code = (M.code && M.code[id]) || '';
+    out += `<g class="${cls.join(' ')}">${halo}`
+        +  `<circle class="ndc" cx="${x}" cy="${y}" r="${R}"/>`
+        +  `<text class="ndkey" x="${x}" y="${y + 5}">${esc(n.leaf ? n.ch : n.w)}</text>`
+        +  (n.leaf ? `<text class="ndw" x="${x}" y="${y + R + 14}">${n.w}</text>` : '')
+        +  (code ? `<text class="ndcode" x="${x}" y="${y + R + 27}">${esc(code)}</text>` : '')
+        +  `</g>`;
+  });
+  svg.innerHTML = (pz.k === 1 && !pz.x && !pz.y)
+    ? out
+    : `<g transform="translate(${pz.x.toFixed(1)} ${pz.y.toFixed(1)}) scale(${pz.k.toFixed(3)})">${out}</g>`;
+}
+
+/* ---------------------- 6. 说明、代码、日志、步骤轴 ---------------------- */
+const BADGE = { init:'init', scan:'scan', pick:'pick', merge:'merge', place:'place', done:'done',
+                'code-start':'code', 'code-leaf':'code', wpl:'code', encode:'code', decode:'code' };
+
+function renderCaption(s){
+  if (!s) return;
+  const b = $('capBadge');
+  b.textContent = s.title;
+  b.dataset.t = BADGE[s.t] || 'info';
+  $('capText').textContent = s.msg;
+  $('capKv').textContent = s.kv || '';
+}
+
+let curCodeKind = '';
+function buildCode(kind){
+  const src = kind === 'code' ? CODE_CODE : CODE_BUILD;
+  $('codeTag').textContent = kind === 'code' ? '编码 / 译码 / WPL' : '构建 Huffman(C)';
+  $('code').innerHTML = src.map(l => `<span class="ln">${esc(l) || ' '}</span>`).join('');
+  curCodeKind = kind;
+}
+function updateCode(s){
+  const kind = s.codeKind === 'code' ? 'code' : 'build';
+  if (kind !== curCodeKind) buildCode(kind);
+  const hl = new Set(s.codeLine || []);
+  const extra = (s.t === 'merge' || s.t === 'place') ? ' merge' : '';
+  Array.from($('code').children).forEach((el, i) => {
+    el.className = 'ln' + (hl.has(i + 1) ? ' hl' + extra : '');
+  });
+}
+
+function buildLog(){
+  const box = $('log');
+  box.innerHTML = model.logs.map(e =>
+    `<div class="li ${e.cls}" data-step="${e.step}">`
+    + `<span class="t">${esc(e.tag)}</span><span class="m">${esc(e.text)}</span></div>`).join('');
+  Array.from(box.children).forEach(el =>
+    el.addEventListener('click', () => { pause(); goto(+el.dataset.step); }));
+}
+function updateLog(){
+  let last = null;
+  Array.from($('log').children).forEach(el => {
+    const on = +el.dataset.step <= cursor;
+    el.classList.toggle('cur', on);
+    if (on) last = el;
+  });
+  if (last) last.scrollIntoView({ block:'nearest' });
+}
+
+const axisCls = s => (s.t === 'merge' || s.t === 'place') ? 'merge'
+                  : (s.t === 'done') ? 'done'
+                  : (s.codeKind === 'code'  ? 'code' : '');
+function buildAxis(){
+  const box = $('axis');
+  box.classList.toggle('tiny', steps.length > 24);
+  box.classList.toggle('dense', steps.length > 64);
+  box.innerHTML = steps.map((s, i) => `<div class="tick ${axisCls(s)}" data-i="${i}">${i + 1}</div>`).join('');
+  Array.from(box.children).forEach(el =>
+    el.addEventListener('click', () => { pause(); goto(+el.dataset.i); }));
+}
+function updateAxis(){
+  let curEl = null;
+  Array.from($('axis').children).forEach(el => {
+    const i = +el.dataset.i;
+    el.classList.toggle('cur', i === cursor);
+    el.classList.toggle('past', i < cursor);
+    if (i === cursor) curEl = el;
+  });
+  if (curEl) curEl.scrollIntoView({ block:'nearest', inline:'nearest' });
+}
+
+function countNodes(forest){
+  let n = 0, leaves = 0;
+  const walk = t => { if (!t) return; n++; if (t.leaf) leaves++; walk(t.left); walk(t.right); };
+  forest.forEach(walk);
+  return { n, leaves };
+}
+
+function updateSidebar(s){
+  const cnt = countNodes(s.forest);
+  const fin = (s.t === 'wpl' || s.t === 'encode' || s.t === 'decode');
+  $('stN').textContent = chars.length;
+  $('stForest').textContent = s.forest.length;
+  $('stInner').textContent = cnt.n - cnt.leaves;
+  $('stWpl').textContent = fin ? model.wpl + ' bit' : '—';
+  $('stWpl').classList.toggle('hl', fin);
+  $('stAvg').textContent = fin ? model.avg.toFixed(2) + ' bit' : '—';
+  $('stAvg').classList.toggle('hl', fin);
+  $('stFix').textContent = fin ? model.fixLen + ' bit' : '—';
+  $('dataTag').textContent = '森林 ' + s.forest.length + ' 棵';
+  const codes = s.codes || {};
+  $('tblBody').innerHTML = model.leaves.map(l => {
+    const code = codes[l.ch] || '';
+    const act = (s.marks && s.marks.cur === l.id) ? ' class="act"' : '';
+    return `<tr${act}><td class="ch">${esc(l.ch)}</td><td>${l.w}</td>`
+         + `<td class="cd${code ? '' : ' miss'}">${code || '—'}</td>`
+         + `<td>${code ? l.w * code.length : '—'}</td></tr>`;
+  }).join('');
+  const rp = renderPreview(s);
+  $('stageTag').textContent = rp;
+}
+
+function renderPreview(s){
+  if (s.t === 'encode') return '文本 → 0/1';
+  if (s.t === 'decode') return '0/1 → 文本';
+  if (s.t === 'wpl') return 'WPL = ' + model.wpl + ' bit';
+  if (s.t === 'done') return '树已建成';
+  return s.forest.length + ' 棵树';
+}
+
+function renderAll(){
+  const s = steps[Math.min(cursor, steps.length - 1)];
+  if (!s) return;
+  render();
+  renderCaption(s);
+  updateCode(s);
+  updateSidebar(s);
+  updateAxis();
+  updateLog();
+  $('stageHint').textContent = s.codeKind === 'code'
+    ? '左 = 0 · 右 = 1 · 字符只在叶子上'
+    : stageRows > 1 ? '森林按根结点权值升序：先左→右，再排下一行'
+                    : '森林按根结点权值升序排列（最左最小）';
+  if (stageFit < 0.62) $('stageHint').textContent += '　· 图形已自动缩小，滚轮可放大看细节';
+  $('stepInfo').textContent = `步骤 ${cursor + 1}/${steps.length}`;
+}
+
+/* ---------------------- 7. 数据输入 ---------------------- */
+function parseFreq(str){
+  const out = [], seen = new Set();
+  for (const tok of String(str).split(/[,;\s，；、]+/)){
+    if (!tok) continue;
+    const m = /^(.+?)\s*[=:：]\s*(\d+(?:\.\d+)?)$/.exec(tok);
+    if (!m) return { err:`看不懂「${tok}」，请写成 字符=频度` };
+    const ch = m[1];
+    if (seen.has(ch)) return { err:`字符「${ch}」重复了` };
+    seen.add(ch);
+    out.push({ ch:ch, w:Math.max(1, Math.round(+m[2])) });
+  }
+  if (out.length < 2) return { err:'至少需要 2 个字符' };
+  return { list:out };
+}
+
+function countText(text){
+  const map = new Map();
+  Array.from(text).forEach(ch => {
+    if (/\s/.test(ch)) return;                       // 忽略空格与换行
+    map.set(ch, (map.get(ch) || 0) + 1);
+  });
+  return Array.from(map.entries())
+    .map(([ch, w]) => ({ ch:ch, w:w }))
+    .sort((a, b) => (b.w - a.w) || (a.ch < b.ch ? -1 : 1));
+}
+
+/* ---------------------- 8. 状态与交互 ---------------------- */
+let chars = [], model = null, steps = [], cursor = 0;
+let playing = false, timer = null, speed = 1.2, srcText = null;
+const FREQ_DEFAULT = 'A=5,B=9,C=12,D=13,E=16,F=45';
+
+function build(list, text){
+  chars = list.map(c => ({ ch:c.ch, w:c.w }));
+  srcText = text || null;
+  model = buildModel(chars, srcText);
+  steps = model.steps;
+  cursor = 0;
+  pz = { k:1, x:0, y:0 };                    // 换了数据就恢复默认视角
+  $('freq').value = chars.map(c => `${c.ch}=${c.w}`).join(',');
+  buildAxis();
+  buildLog();
+  renderAll();
+}
+
+function goto(i){
+  cursor = Math.max(0, Math.min(steps.length - 1, i));
+  renderAll();
+}
+function stepMs(s){
+  const base = s.t === 'merge' ? 1300 : s.t === 'place' ? 980 : s.t === 'code-leaf' ? 1150
+             : s.t === 'scan' ? 1000 : 900;
+  return base / speed;
+}
+function updatePlayBtn(){ $('bPlay').textContent = playing ? '❚❚ 暂停' : '▶ 播放'; }
+function play(){
+  if (playing) return;
+  if (cursor >= steps.length - 1) cursor = 0;
+  playing = true; updatePlayBtn(); renderAll();
+  const loop = () => {
+    if (!playing) return;
+    if (cursor >= steps.length - 1){ pause(); return; }
+    cursor++; renderAll();
+    timer = setTimeout(loop, stepMs(steps[cursor]));
+  };
+  timer = setTimeout(loop, stepMs(steps[cursor]));
+}
+function pause(){
+  playing = false;
+  if (timer) clearTimeout(timer);
+  timer = null;
+  updatePlayBtn();
+}
+
+function applyFreq(text, silent){
+  const r = parseFreq(text);
+  const inp = $('freq');
+  if (r.err){
+    inp.classList.add('bad');
+    setTimeout(() => inp.classList.remove('bad'), 400);
+    if (!silent){ $('capBadge').textContent = '输入有误'; $('capBadge').dataset.t = 'info';
+                  $('capText').textContent = r.err; $('capKv').textContent = '格式示例：A=5, B=9, C=12'; }
+    return false;
+  }
+  build(r.list, null);
+  return true;
+}
+
+function applyText(text){
+  const list = countText(text);
+  if (list.length < 2){
+    $('capBadge').textContent = '文本太短'; $('capBadge').dataset.t = 'info';
+    $('capText').textContent = '请至少输入 2 种不同的字符。';
+    return;
+  }
+  build(list, text);
+  if (list.length > 10){                       // 字符多时给个说明，画布会自动分行摆放
+    model.logs.unshift({ step:0, tag:'提示', cls:'',
+                         text:`文本里有 ${list.length} 种字符，全部取入；森林会分行摆放，整棵树仍在一屏内显示` });
+    buildLog();
+  }
+}
+
+/* ---------------------- 9. 启动 ---------------------- */
+function screenToUser(evt){                       // 屏幕坐标 → SVG 用户坐标
+  const svg = $('svg');
+  try {
+    const pt = svg.createSVGPoint();
+    pt.x = evt.clientX; pt.y = evt.clientY;
+    return pt.matrixTransform(svg.getScreenCTM().inverse());
+  } catch(e){ return null; }
+}
+function userPerPixel(){                          // 1 屏幕像素 = 多少用户单位
+  try { return 1 / $('svg').getScreenCTM().a; } catch(e){ return 1; }
+}
+function initPanZoom(){
+  const stage = $('stage');
+  stage.addEventListener('wheel', e => {
+    e.preventDefault();
+    const p = screenToUser(e); if (!p) return;
+    const k2 = Math.max(0.4, Math.min(8, pz.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+    const cx = (p.x - pz.x) / pz.k, cy = (p.y - pz.y) / pz.k;    // 光标下的内容点保持不动
+    pz = { k:k2, x:p.x - k2 * cx, y:p.y - k2 * cy };
+    render();
+  }, { passive:false });
+  let drag = null;
+  stage.addEventListener('pointerdown', e => {
+    drag = { x:e.clientX, y:e.clientY, ox:pz.x, oy:pz.y };
+    if (stage.setPointerCapture) { try { stage.setPointerCapture(e.pointerId); } catch(err){} }
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const s = userPerPixel();
+    pz = { k:pz.k, x:drag.ox + (e.clientX - drag.x) * s, y:drag.oy + (e.clientY - drag.y) * s };
+    render();
+  });
+  const stop = () => { drag = null; };
+  stage.addEventListener('pointerup', stop);
+  stage.addEventListener('pointercancel', stop);
+  stage.addEventListener('pointerleave', stop);
+  stage.addEventListener('dblclick', () => { if (pz.k !== 1 || pz.x || pz.y){ pz = { k:1, x:0, y:0 }; render(); } });
+}
+
+function initUI(){
+  $('bApply').addEventListener('click', () => { pause(); applyFreq($('freq').value); });
+  $('freq').addEventListener('keydown', e => { if (e.key === 'Enter'){ pause(); applyFreq($('freq').value); } });
+  $('bCalc').addEventListener('click', () => { pause(); applyText($('txt').value); });
+  $('txt').addEventListener('keydown', e => { if (e.key === 'Enter'){ pause(); applyText($('txt').value); } });
+  $('p1').addEventListener('click', () => { pause(); $('freq').value = FREQ_DEFAULT; applyFreq(FREQ_DEFAULT); });
+  $('p2').addEventListener('click', () => { pause(); $('txt').value = 'mississippi river'; applyText($('txt').value); });
+  $('p3').addEventListener('click', () => { pause(); $('txt').value = '哈夫曼树与哈夫曼编码'; applyText($('txt').value); });
+  $('bPrev').addEventListener('click', () => { pause(); goto(cursor - 1); });
+  $('bNext').addEventListener('click', () => { pause(); goto(cursor + 1); });
+  $('bPlay').addEventListener('click', () => playing ? pause() : play());
+  $('bDemo').addEventListener('click', () => { pause(); cursor = 0; renderAll(); play(); });
+  $('spd').addEventListener('input', e => { speed = +e.target.value || 1.2; });
+  document.addEventListener('keydown', e => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input') return;
+    if (e.key === ' '){ e.preventDefault(); playing ? pause() : play(); }
+    else if (e.key === 'ArrowLeft'){ pause(); goto(cursor - 1); }
+    else if (e.key === 'ArrowRight'){ pause(); goto(cursor + 1); }
+  });
+  window.addEventListener('resize', render);
+  initPanZoom();
+  speed = +$('spd').value || 1.2;
+  applyFreq(FREQ_DEFAULT, true);
+  buildCode('build');
+  renderAll();
+}
+if (typeof document !== 'undefined') initUI();
+</script>
+</body>
+</html>
