@@ -1,0 +1,1532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>B 树 / B+ 树 原理演示 · 插入 / 删除 / 查找 / 范围查询</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#131c2e; --panel2:#18233a; --line:#25334f;
+    --text:#e8eef9; --muted:#93a2bd; --accent:#4cc9f0; --accent2:#8b5cf6;
+    --ok:#3ddc97; --warn:#ffb703; --bad:#ff6b8b; --split:#c46bd6;
+    --shadow:0 8px 28px rgba(0,0,0,.42);
+    --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:radial-gradient(1200px 700px at 18% -10%,#16233c,#0b1220 60%) fixed;
+    color:var(--text);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+  .app{height:100vh;display:flex;flex-direction:column;gap:8px;padding:10px 12px 12px}
+
+  header{display:flex;flex-direction:column;gap:7px;flex:0 0 auto}
+  .row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .brand{display:flex;align-items:baseline;gap:9px}
+  .brand h1{font-size:16.5px;margin:0;letter-spacing:.4px}
+  .brand .sub{font-size:11.5px;color:var(--muted)}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);
+                box-shadow:0 0 12px var(--accent);display:inline-block}
+  .group{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);
+         border-radius:10px;padding:5px 7px}
+  .group .lbl{font-size:11px;color:var(--muted)}
+  .toolbar{margin-left:auto;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  button{background:linear-gradient(180deg,#1d2b46,#16223a);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:6px 10px;font-size:12.5px;cursor:pointer;font-family:inherit;transition:.14s;white-space:nowrap}
+  button:hover{border-color:var(--accent);transform:translateY(-1px)}
+  button:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  button.primary{background:linear-gradient(180deg,#1f6f9c,#14506f);border-color:#3a9fd0}
+  button.danger:hover{border-color:var(--bad);color:#ffd7e0}
+  button.small{padding:4px 8px;font-size:11.5px}
+  button.tab{padding:5px 12px}
+  button.tab.on{background:linear-gradient(180deg,#1f6f9c,#14506f);border-color:#3a9fd0;color:#fff}
+  input[type=text],input[type=number]{background:#0d1728;border:1px solid var(--line);border-radius:7px;color:var(--text);
+    padding:5px 7px;font-family:var(--mono);font-size:12px;outline:none;width:62px}
+  input[type=text]:focus,input[type=number]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(76,201,240,.14)}
+  input.bad{border-color:var(--bad);animation:shake .3s}
+  @keyframes shake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+  input[type=range]{width:84px;accent-color:var(--accent)}
+
+  main{flex:1;min-height:0;display:grid;grid-template-columns:252px minmax(0,1fr) 372px;gap:9px}
+  .panel{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);
+    border-radius:12px;box-shadow:var(--shadow);min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .panel>h2{margin:0;padding:8px 11px;font-size:11.5px;letter-spacing:.6px;color:#bcd0ea;border-bottom:1px solid var(--line);
+    background:rgba(255,255,255,.02);display:flex;align-items:center;gap:7px;text-transform:uppercase;flex:0 0 auto}
+  .panel>h2 .tag{margin-left:auto;font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0}
+  .body{padding:9px 10px;overflow:auto;flex:1;min-height:0}
+
+  /* 画布 */
+  .stage{flex:1;min-height:0;position:relative;overflow:hidden;cursor:grab;background:
+    radial-gradient(700px 420px at 30% 0%,rgba(76,201,240,.07),transparent 70%),
+    repeating-linear-gradient(0deg,transparent 0 23px,rgba(255,255,255,.022) 23px 24px),
+    repeating-linear-gradient(90deg,transparent 0 23px,rgba(255,255,255,.022) 23px 24px)}
+  .stage svg{position:absolute;inset:0;width:100%;height:100%}
+  .stage .hint{position:absolute;left:11px;bottom:8px;font-size:11px;color:#7d8db0;
+    background:rgba(9,15,28,.7);padding:4px 8px;border-radius:8px;border:1px solid var(--line);pointer-events:none}
+  .legend-mini{position:absolute;right:10px;top:9px;display:flex;gap:9px;font-size:11px;color:#8ea2c2;
+    background:rgba(9,15,28,.62);padding:4px 8px;border-radius:8px;border:1px solid var(--line);pointer-events:none}
+  .legend-mini i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+  .empty-tip{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#5f7095;
+    font-size:14px;pointer-events:none}
+
+  /* 说明 / 步骤轴 / 播放条 */
+  .caption{padding:9px 12px;border-bottom:1px solid var(--line);background:rgba(76,201,240,.045);
+    display:flex;gap:10px;align-items:flex-start;height:98px;flex:0 0 auto}
+  .badge{font-family:var(--mono);font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:6px;
+    white-space:nowrap;letter-spacing:.4px;flex:0 0 auto}
+  .badge[data-t=init]{background:#22406b;color:#9fd0ff}
+  .badge[data-t=search]{background:#2a3a5c;color:#cfe0f5}
+  .badge[data-t=compare]{background:#4a3a12;color:#ffdd8a}
+  .badge[data-t=insert]{background:#1c5340;color:#9ff0c4}
+  .badge[data-t=split]{background:#3b2f5e;color:#d5c4ff}
+  .badge[data-t=delete]{background:#5c2130;color:#ffb9c9}
+  .badge[data-t=borrow]{background:#14506f;color:#bfe9ff}
+  .badge[data-t=merge]{background:#5c4410;color:#ffd479}
+  .badge[data-t=fix]{background:#4a2a5c;color:#eec8ff}
+  .badge[data-t=range]{background:#1f5a55;color:#a9f5ea}
+  .badge[data-t=done]{background:#1f5a55;color:#a9f5ea}
+  .badge[data-t=info]{background:#2a3a5c;color:#cfe0f5}
+  .cap-text{font-size:13px;line-height:1.5;flex:1;min-width:0;overflow:hidden}
+  #capText{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+  .cap-text .kv{font-family:var(--mono);font-size:11.5px;color:#9db0d0;display:block;margin-top:4px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .axis{display:flex;align-items:center;gap:2px;padding:6px 10px;border-top:1px solid var(--line);
+    background:rgba(0,0,0,.16);overflow-x:auto;min-height:34px;flex:0 0 auto}
+  .tick{flex:0 0 auto;min-width:20px;height:21px;border-radius:5px;background:#1b2740;border:1px solid #2b3a58;
+    color:#8fa3c4;font-family:var(--mono);font-size:10px;cursor:pointer;display:flex;align-items:center;
+    justify-content:center;padding:0 4px;transition:.12s}
+  .tick:hover{border-color:var(--accent);color:#fff}
+  .tick.split{background:#3a2450;color:#e6c6ff;border-color:#6b3f8c}
+  .tick.del{background:#4a2230;color:#ffc3d0;border-color:#7a3346}
+  .tick.range{background:#1b3f38;color:#a9f5ea;border-color:#2f6f62}
+  .tick.past{opacity:.5}
+  .tick.cur{background:var(--accent);color:#06202c;font-weight:700;border-color:#fff;transform:scale(1.14);opacity:1}
+
+  .player{display:flex;align-items:center;gap:8px;padding:7px 10px;border-top:1px solid var(--line);
+    background:rgba(255,255,255,.02);flex-wrap:wrap;flex:0 0 auto}
+  .player .sp{flex:1}
+  .stepinfo{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+  /* 伪代码 + 日志 */
+  .panel.right{display:grid;grid-template-rows:auto minmax(0,1.4fr) auto minmax(0,.6fr)}
+  .codewrap{overflow:auto;min-height:0;padding:6px 0;background:#0f1728}
+  pre.code{margin:0;font-family:var(--mono);font-size:11.2px;line-height:1.5;counter-reset:l}
+  pre.code .ln{display:block;padding:0 10px 0 42px;position:relative;white-space:pre;color:#b9c8e0;
+    border-left:3px solid transparent}
+  pre.code .ln::before{counter-increment:l;content:counter(l);position:absolute;left:0;width:34px;
+    text-align:right;color:#4d5f80;font-size:10.5px}
+  pre.code .ln.hl{background:linear-gradient(90deg,rgba(76,201,240,.19),rgba(76,201,240,.02));
+    border-left-color:var(--accent);color:#fff}
+  pre.code .ln.hl.sp{background:linear-gradient(90deg,rgba(196,107,214,.24),rgba(196,107,214,.02));
+    border-left-color:var(--split);color:#ffeaff}
+  pre.code .ln.hl.dl{background:linear-gradient(90deg,rgba(255,107,139,.22),rgba(255,107,139,.02));
+    border-left-color:var(--bad);color:#ffd7e0}
+
+  .log{font-size:11.8px;line-height:1.45;padding:6px 10px}
+  .log .li{display:flex;gap:7px;padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.05);cursor:pointer}
+  .log .li:hover .m{text-decoration:underline}
+  .log .li .t{font-family:var(--mono);font-size:10.5px;color:#7f92b4;flex:0 0 46px;padding-top:1px}
+  .log .li .m{flex:1;color:#cbd8ec}
+  .log .li.sp .m{color:#e8c8ff}
+  .log .li.done .m{color:#a9f5ea}
+  .log .li.warn .m{color:#ffd08a}
+  .log .li.cur{background:rgba(76,201,240,.1);border-radius:5px}
+
+  /* 左栏 */
+  .kv-grid{display:grid;grid-template-columns:auto 1fr;gap:4px 9px;font-size:11.5px;align-items:center;margin-bottom:8px}
+  .kv-grid .k{color:var(--muted)}
+  .kv-grid .v{font-family:var(--mono);font-size:12.5px;color:#dfeaf9;text-align:right}
+  .kv-grid .v.hl{color:var(--ok)}
+  table.tbl{width:100%;border-collapse:collapse;font-size:10.8px}
+  table.tbl th{color:var(--muted);font-weight:500;padding:3px 2px;border-bottom:1px solid var(--line);text-align:center}
+  table.tbl td{padding:3px 3px;border-bottom:1px dashed rgba(255,255,255,.05);color:#c9d8ef;vertical-align:top}
+  table.tbl td.k{color:#93a2bd;white-space:nowrap;width:64px}
+  table.tbl tr.on td{background:rgba(76,201,240,.12)}
+  details.help{border-top:1px solid var(--line);margin-top:7px;padding-top:6px}
+  details.help summary{cursor:pointer;font-size:11.5px;color:#9fb4d4;outline:none}
+  details.help .c{font-size:11px;color:#a8bbd8;line-height:1.7;margin-top:5px}
+  details.help .c b{color:#d9e6f8;font-weight:600}
+  details.help .c code{font-family:var(--mono);color:#bfe9ff}
+  .legend{display:flex;flex-direction:column;gap:5px;font-size:11.2px;color:#b6c6de;margin-top:5px}
+  .legend .row{display:flex;align-items:center;gap:7px}
+  .sw{width:15px;height:12px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(255,255,255,.25)}
+  kbd{font-family:var(--mono);font-size:10.5px;background:#1b2740;border:1px solid #2f4266;border-radius:4px;padding:0 4px}
+
+  /* SVG */
+  line.edge{stroke:#3c5074;stroke-width:2;transition:stroke .2s}
+  line.edge.act{stroke:var(--accent);stroke-width:3}
+  line.edge.hi{stroke:var(--ok);stroke-width:3}
+  line.edge.dim{stroke:#2a3854;opacity:.5}
+  line.leaf{stroke:#2f6f62;stroke-width:2;stroke-dasharray:6 4}
+  line.leaf.hi{stroke:var(--ok);stroke-width:3}
+  rect.nd{fill:#1b2740;stroke:#4a628c;stroke-width:2;rx:8}
+  g.nd.leaf rect.nd{fill:#182f2b;stroke:#2f6f62}
+  g.nd.act rect.nd{fill:#14506f;stroke:var(--accent);stroke-width:3}
+  g.nd.cmp rect.nd{fill:#6b4400;stroke:var(--warn);stroke-width:3}
+  g.nd.hi rect.nd{fill:#12503c;stroke:var(--ok);stroke-width:3}
+  g.nd.sp rect.nd{fill:#3d1f4b;stroke:var(--split);stroke-width:3}
+  g.nd.dim{opacity:.35}
+  g.nd.done rect.nd{fill:#15303f;stroke:#2f6f62}
+  line.sep{stroke:#33456b;stroke-width:1.4}
+  rect.cell{fill:transparent}
+  rect.cell.hi{fill:rgba(61,220,151,.20);stroke:none}
+  rect.cell.cmp{fill:rgba(255,183,3,.20);stroke:none}
+  rect.cell.bad{fill:rgba(255,107,139,.22);stroke:none}
+  rect.cell.sp{fill:rgba(196,107,214,.22);stroke:none}
+  text.key{font-family:var(--mono);font-size:13.5px;font-weight:600;fill:#eaf2ff;text-anchor:middle;pointer-events:none}
+  text.key.hi{fill:#c8ffe6}
+  text.key.cmp{fill:#ffe9b0}
+  text.key.sp{fill:#ffeaff}
+  text.key.bad{fill:#ffd7e0}
+  text.tag{font-family:var(--mono);font-size:10px;fill:#7f92b4;text-anchor:middle;pointer-events:none}
+  text.tag.hi{fill:#3ddc97}
+  text.nlab{font-family:var(--mono);font-size:10px;fill:#61759b;text-anchor:middle;pointer-events:none}
+  text.nlab.bad{fill:#ff6b8b;font-weight:700}
+  table.tbl td.on{background:rgba(76,201,240,.12);color:#fff}
+  circle.halo{fill:none;stroke:var(--ok);stroke-width:2.4;transform-box:fill-box;transform-origin:center;
+    animation:halo 1.35s ease-out infinite}
+  @keyframes halo{0%{transform:scale(.94);opacity:.85}100%{transform:scale(1.5);opacity:0}}
+
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#2a3a58;border-radius:9px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#3b5182;background-clip:content-box}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  @media(max-width:1420px){ main{grid-template-columns:232px minmax(0,1fr) 342px} }
+  @media(max-width:1180px){
+    body{overflow:auto} .app{height:auto;min-height:100vh} main{grid-template-columns:1fr}
+    .stage{height:52vh} .panel.right{grid-template-rows:auto 260px auto 200px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="row">
+      <div class="brand">
+        <span class="dot"></span>
+        <h1>B 树 / B+ 树 原理演示</h1>
+        <span class="sub">插入 · 删除 · 查找 · 范围查询 · 分裂与合并逐步细化</span>
+      </div>
+      <div class="toolbar">
+        <div class="group">
+          <span class="lbl">树类型</span>
+          <button class="tab on" id="tB">B 树</button>
+          <button class="tab" id="tBP">B+ 树</button>
+        </div>
+        <div class="group">
+          <span class="lbl">阶 m</span>
+          <button class="small" id="m3">3</button>
+          <button class="small on" id="m4">4</button>
+          <button class="small" id="m5">5</button>
+          <button class="small" id="m6">6</button>
+        </div>
+        <div class="group">
+          <span class="lbl">速度</span>
+          <input id="spd" type="range" min="0.4" max="3.2" step="0.2" value="1.2">
+          <button class="small" id="bClear">清空</button>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="group">
+        <span class="lbl">操作</span>
+        <input id="val" type="number" min="1" max="99" value="25" title="1~99 的整数">
+        <button class="primary small" id="bIns">插入</button>
+        <button class="danger small" id="bDel">删除</button>
+        <button class="small" id="bFind">查找</button>
+      </div>
+      <div class="group">
+        <span class="lbl">范围查询</span>
+        <input id="lo" type="number" min="1" max="99" value="20">
+        <span class="lbl">~</span>
+        <input id="hi" type="number" min="1" max="99" value="40">
+        <button class="small" id="bRange">查询</button>
+      </div>
+      <div class="group">
+        <span class="lbl">预设</span>
+        <button class="small" id="pSeq">顺序插入 1~9</button>
+        <button class="small" id="pRnd">随机 10 个</button>
+        <button class="small" id="pSplit">观看分裂</button>
+        <button class="small" id="pDel">观看删除（借/合并）</button>
+      </div>
+      <div class="group">
+        <button class="primary small" id="bDemo">▶ 自动演示</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- 左栏 -->
+    <section class="panel">
+      <h2>状态 <span class="tag" id="statTag"></span></h2>
+      <div class="body">
+        <div class="kv-grid">
+          <span class="k">树类型</span><span class="v" id="stType">B 树</span>
+          <span class="k">阶 m</span><span class="v" id="stM">4</span>
+          <span class="k">关键字数</span><span class="v" id="stKeys">0</span>
+          <span class="k">结点数</span><span class="v" id="stNodes">0</span>
+          <span class="k">树高</span><span class="v" id="stH">0</span>
+          <span class="k">每结点关键字</span><span class="v" id="stRange">—</span>
+        </div>
+        <details class="help" open>
+          <summary>定义与性质</summary>
+          <div class="c" id="defNote"></div>
+        </details>
+        <details class="help" open>
+          <summary>B 树 vs B+ 树</summary>
+          <table class="tbl" id="cmpTable"></table>
+        </details>
+        <details class="help">
+          <summary>复杂度 / 为什么数据库用它</summary>
+          <div class="c" id="whyNote"></div>
+        </details>
+        <details class="help">
+          <summary>图例 / 快捷键</summary>
+          <div class="legend">
+            <div class="row"><span class="sw" style="background:#1b2740;border-color:#4a628c"></span>内部结点（存关键字/索引）</div>
+            <div class="row"><span class="sw" style="background:#182f2b;border-color:#2f6f62"></span>叶子结点</div>
+            <div class="row"><span class="sw" style="background:#6b4400;border-color:#ffb703"></span>正在比较的关键字</div>
+            <div class="row"><span class="sw" style="background:#12503c;border-color:#3ddc97"></span>插入 / 命中的关键字</div>
+            <div class="row"><span class="sw" style="background:#3d1f4b;border-color:#c46bd6"></span>分裂 / 上移的关键字</div>
+            <div class="row"><span class="sw" style="background:#5c2130;border-color:#ff6b8b"></span>待删除 / 下溢的结点</div>
+            <div class="row"><span class="sw" style="background:transparent;border:1px dashed #2f6f62"></span>B+ 树的叶子链（顺序扫描用）</div>
+          </div>
+          <div class="c" style="margin-top:6px">
+            <kbd>空格</kbd> 播放/暂停 · <kbd>←</kbd> <kbd>→</kbd> 单步 · 点步骤轴跳转 · 点日志行回看<br>
+            画布：滚轮缩放 · 拖动平移 · 双击复位
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- 中栏 -->
+    <section class="panel">
+      <h2>结构 <span class="tag" id="stageTag"></span></h2>
+      <div class="stage" id="stage">
+        <svg id="svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="legend-mini">
+          <span><i style="background:#1b2740;border:1px solid #4a628c"></i>内部</span>
+          <span><i style="background:#182f2b;border:1px solid #2f6f62"></i>叶子</span>
+          <span><i style="background:#6b4400;border:1px solid #ffb703"></i>比较</span>
+          <span><i style="background:#3d1f4b;border:1px solid #c46bd6"></i>分裂</span>
+        </div>
+        <div class="empty-tip" id="emptyTip">树是空的 — 输入一个值点「插入」开始</div>
+        <div class="hint" id="hint">拖动平移 · 滚轮缩放 · 双击复位</div>
+      </div>
+      <div class="caption">
+        <span class="badge" id="capBadge" data-t="info">准备就绪</span>
+        <div class="cap-text">
+          <span id="capText">点「自动演示」看 B 树怎样分裂与合并，或直接插入/删除逐步观察。</span>
+          <span class="kv" id="capKv"></span>
+        </div>
+      </div>
+      <div class="axis" id="axis"></div>
+      <div class="player">
+        <button id="bPrev" title="上一步 (←)">◀</button>
+        <button class="primary" id="bPlay" title="播放 / 暂停 (空格)">▶ 播放</button>
+        <button id="bNext" title="下一步 (→)">▶</button>
+        <button class="small" id="bReset" title="回到第一步">⏮ 回到开头</button>
+        <span class="stepinfo" id="stepInfo">步骤 0 / 0</span>
+        <span class="sp"></span>
+        <span class="stepinfo" id="playState">就绪</span>
+      </div>
+    </section>
+
+    <!-- 右栏 -->
+    <section class="panel right">
+      <h2>伪代码 <span class="tag" id="codeTag"></span></h2>
+      <div class="codewrap"><pre class="code" id="code"></pre></div>
+      <h2>过程日志 <span class="tag">点击可回看</span></h2>
+      <div class="body log" id="log"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+/* =====================================================================
+   B 树 / B+ 树演示 —— 脚本分四层
+   1) 结点模型：newNode / snapTree / 布局辅助
+   2) 算法：B 树的插入·删除·查找·范围查询；B+ 树的对应版本（叶子链 + 分隔符同步）
+   3) 伪代码与知识点
+   4) 渲染与交互
+   ===================================================================== */
+'use strict';
+const $ = id => document.getElementById(id);
+
+/* 阶 m 的约定：每个结点最多 m 个孩子、m−1 个关键字；
+   除根外每个结点至少 ⌈m/2⌉ 个孩子（即至少 ⌈m/2⌉−1 个关键字）。 */
+let M = 4;
+const maxK = () => M - 1;
+const minK = () => Math.ceil(M / 2) - 1;
+
+let UID = 0;
+function newNode(leaf){ return { id:'n' + (++UID), leaf:!!leaf, keys:[], children:[], next:null }; }
+function newTree(bp){ return { bp:!!bp, root:null }; }
+
+/* 左子树最小关键字（B+ 树内部结点用它当分隔符） */
+function minKey(n){ while (!n.leaf) n = n.children[0]; return n.keys.length ? n.keys[0] : Infinity; }
+/* B+ 树：内部结点的关键字 = 右子树的最小关键字，任何结构变化后同步一遍 */
+function refreshBP(n){
+  if (!n) return;
+  if (!n.leaf){
+    n.children.forEach(refreshBP);
+    n.keys = n.children.slice(1).map(c => minKey(c));
+  }
+}
+function snapTree(T){
+  if (!T.root) return { nodes:[], root:null };
+  const nodes = [];
+  (function walk(n, depth){
+    nodes.push({ id:n.id, leaf:!!n.leaf, keys:n.keys.slice(), childIds:n.children.map(c => c.id),
+                 depth:depth, next:n.next ? n.next.id : null });
+    n.children.forEach(c => walk(c, depth + 1));
+  })(T.root, 0);
+  return { nodes, root:T.root.id };
+}
+function treeStats(T){
+  let nodes = 0, keys = 0, leafDepth = -1, uniform = true, minKeys = Infinity, maxKeys = 0;
+  if (!T.root) return { nodes:0, keys:0, height:0, uniform:true, minKeys:0, maxKeys:0 };
+  (function walk(n, d){
+    nodes++; keys += n.keys.length;
+    minKeys = Math.min(minKeys, n.keys.length);
+    maxKeys = Math.max(maxKeys, n.keys.length);
+    if (n.leaf){ if (leafDepth < 0) leafDepth = d; else if (leafDepth !== d) uniform = false; }
+    n.children.forEach(c => walk(c, d + 1));
+  })(T.root, 0);
+  return { nodes, keys, height:leafDepth + 1, uniform, minKeys, maxKeys };
+}
+
+/* ---------------------- 步骤录制器 ---------------------- */
+function mkRec(T){
+  return {
+    T:T, steps:[], logs:[],
+    push(o){ o.tree = snapTree(T); o.m = M; o.bp = T.bp; this.steps.push(o); return this.steps.length - 1; },
+    log(tag, text, cls){ this.logs.push({ tag:tag, text:text, cls:cls || '', step:this.steps.length - 1 }); }
+  };
+}
+const listStr = a => a.length ? a.join(' ') : '空';
+
+/* ---------------------------------------------------------------- B 树 */
+
+/* 插入：一路向下找到叶子插入，再从下往上处理溢出（分裂） */
+function bInsert(T, key, R){
+  if (!T.root){
+    T.root = newNode(true); T.root.keys.push(key);
+    R.push({ t:'insert', msg:`树是空的：${key} 直接成为根结点的第一个关键字。`,
+             kv:`${M} 阶 B 树：每个结点最多 ${maxK()} 个关键字、${M} 个孩子；除根外每个结点至少 ${minK()} 个关键字。`,
+             hl:{ nodes:[T.root.id], cells:[{ id:T.root.id, i:0, cls:'hi' }] }, code:[1] });
+    R.log('插入', `${key} 成为根结点`, '');
+    return true;
+  }
+  /* ① 从根往下找插入位置 */
+  const path = [];
+  let n = T.root;
+  for (;;){
+    let i = 0; while (i < n.keys.length && n.keys[i] < key) i++;
+    if (i < n.keys.length && n.keys[i] === key){
+      R.push({ t:'search', msg:`${key} 已经存在于结点 [${listStr(n.keys)}] 中。B 树同样不允许重复关键字，本次插入取消。`,
+               hl:{ nodes:[n.id], cells:[{ id:n.id, i:i, cls:'cmp' }] }, code:[3] });
+      return false;
+    }
+    if (n.leaf) break;
+    R.push({ t:'compare', msg:`在结点 [${listStr(n.keys)}] 里比较 ${key}：`
+             + (i === 0 ? `比第一个关键字 ${n.keys[0]} 还小 → 走最左边的孩子。`
+                        : `落在 ${n.keys[i-1]} 与 ${i < n.keys.length ? n.keys[i] : '∞'} 之间 → 走第 ${i} 个孩子（孩子指针夹在关键字之间）。`),
+             kv:`该结点有 ${n.keys.length} 个关键字 → ${n.children.length} 个孩子指针`,
+             hl:{ nodes:[n.id], cells:i < n.keys.length ? [{ id:n.id, i:i, cls:'cmp' }] : [{ id:n.id, i:n.keys.length - 1, cls:'cmp' }] },
+             code:[4] });
+    path.push({ node:n, idx:i });
+    n = n.children[i];
+  }
+  /* ② 插入到叶子 */
+  let pos = 0; while (pos < n.keys.length && n.keys[pos] < key) pos++;
+  n.keys.splice(pos, 0, key);
+  R.push({ t:'insert', msg:`到达叶子结点，把 ${key} 插到第 ${pos} 个位置：叶子变成 [${listStr(n.keys)}]（结点内关键字始终保持升序）。`,
+           hl:{ nodes:[n.id], cells:[{ id:n.id, i:pos, cls:'hi' }] }, code:[6] });
+  R.log('插入', `${key} 放进叶子 [${listStr(n.keys)}]`, '');
+  /* ③ 溢出就分裂，向上传播 */
+  let node = n;
+  while (node.keys.length > maxK()){
+    const K = node.keys.length, t = Math.floor(K / 2), up = node.keys[t];
+    R.push({ t:'split', msg:`结点 [${listStr(node.keys)}] 有 ${K} 个关键字，超过上限 ${maxK()} → 溢出，必须分裂。`,
+             hl:{ nodes:[node.id], cells:[{ id:node.id, i:t, cls:'sp' }] }, code:[8] });
+    const right = newNode(node.leaf);
+    right.keys = node.keys.slice(t + 1);
+    node.keys = node.keys.slice(0, t);
+    if (!node.leaf){
+      right.children = node.children.slice(t + 1);
+      node.children = node.children.slice(0, t + 1);
+    }
+    R.push({ t:'split', msg:`取中间关键字 ${up} 上移给父结点；左右两半各自成为一个结点：[${listStr(node.keys)}] 和 [${listStr(right.keys)}]。`,
+             hl:{ nodes:[node.id, right.id], cells:[{ id:right.id, i:0, cls:'sp' }] },
+             kv:`分裂点 t = ⌊${K}/2⌋ = ${t}；中位数上移，不再留在原来的结点里`,
+             code:[9] });
+    const par = path.pop();
+    if (!par){
+      const nr = newNode(false);
+      nr.keys = [up]; nr.children = [node, right];
+      T.root = nr;
+      R.push({ t:'split', msg:`分裂的是根结点：新建一个根，${up} 成为根里唯一的关键字，两个孩子分别挂在它的左右。树高 +1。`,
+               hl:{ nodes:[nr.id], cells:[{ id:nr.id, i:0, cls:'sp' }], edges:[nr.id + '>' + node.id, nr.id + '>' + right.id] },
+               code:[11] });
+      R.log('分裂', `根分裂 → 新根 [${up}]，树高 +1`, 'sp');
+      break;
+    }
+    par.node.keys.splice(par.idx, 0, up);
+    par.node.children.splice(par.idx + 1, 0, right);
+    R.push({ t:'split', msg:`把 ${up} 和右半结点插回父结点 [${listStr(par.node.keys)}] 的对应位置（父结点的关键字与孩子指针同步增加）。`,
+             hl:{ nodes:[par.node.id], cells:[{ id:par.node.id, i:par.idx, cls:'sp' }] },
+             kv:`父结点现在有 ${par.node.keys.length} 个关键字`, code:[10] });
+    R.log('分裂', `[${listStr(node.keys)}] / [${listStr(right.keys)}]，${up} 上移`, 'sp');
+    node = par.node;                     // 父结点也可能溢出 → 继续往上
+  }
+  const st = treeStats(T);
+  R.push({ t:'done', msg:`插入 ${key} 完成：所有结点关键字数都在 ${M === 3 ? 1 : minK()}~${maxK()} 之间（根可以更少），树高 ${st.height}。`,
+           kv:`关键字 ${st.keys} 个，结点 ${st.nodes} 个`, code:[13] });
+  return true;
+}
+
+/* 删除：先定位；内部结点用左子树最大值替换；再从下往上修复下溢（借 / 合并） */
+function bDelete(T, key, R){
+  if (!T.root) return false;
+  let n = T.root; const path = []; let hit = null;
+  for (;;){
+    let i = 0; while (i < n.keys.length && n.keys[i] < key) i++;
+    R.push({ t:'compare', msg:`在结点 [${listStr(n.keys)}] 里比较 ${key}：`
+             + (i < n.keys.length && n.keys[i] === key ? `正好命中第 ${i} 个关键字！`
+                : i === 0 ? `比第一个关键字 ${n.keys[0]} 还小，继续往最左边走。`
+                          : `落在 ${n.keys[i-1]} 与 ${i < n.keys.length ? n.keys[i] : '∞'} 之间，往第 ${i} 个孩子走。`),
+             hl:{ nodes:[n.id], cells:[{ id:n.id, i:Math.min(i, n.keys.length - 1), cls: i < n.keys.length && n.keys[i] === key ? 'bad' : 'cmp' }] },
+             code:[2] });
+    if (i < n.keys.length && n.keys[i] === key){ hit = { node:n, idx:i }; break; }
+    if (n.leaf) break;
+    path.push({ node:n, idx:i });
+    n = n.children[i];
+  }
+  if (!hit){
+    R.push({ t:'done', msg:`${key} 不在树中，删除操作没有改变任何结点。`, hl:{}, code:[2] });
+    return false;
+  }
+  let leaf = hit.node, leafPath = path.slice();
+  if (!hit.node.leaf){
+    /* 内部结点：用左子树里的最大关键字替换，再删掉那个叶子里的它 */
+    let p = hit.node.children[hit.idx];
+    const down = [];
+    while (!p.leaf){ down.push({ node:p, idx:p.children.length - 1 }); p = p.children[p.children.length - 1]; }
+    leafPath = path.concat([{ node:hit.node, idx:hit.idx }], down);
+    const pred = p.keys[p.keys.length - 1];
+    R.push({ t:'delete', msg:`${key} 在内部结点里。B 树的内部结点也存着真正的关键字，不能直接摘掉：`
+             + `先用左子树中最大的 ${pred} 顶替它，再回到叶子把 ${pred} 删掉。`,
+             hl:{ nodes:[hit.node.id], cells:[{ id:hit.node.id, i:hit.idx, cls:'bad' }] },
+             kv:`左子树里最大的关键字一定在叶子上（一路往右走）`, code:[3] });
+    hit.node.keys[hit.idx] = pred;
+    R.push({ t:'fix', msg:`替换完成：内部结点里变成 [${listStr(hit.node.keys)}]；接下来删除叶子 [${listStr(p.keys)}] 里的 ${pred}。`,
+             hl:{ nodes:[hit.node.id, p.id], cells:[{ id:hit.node.id, i:hit.idx, cls:'hi' }] }, code:[4] });
+    leaf = p;
+  }
+  const pos = leaf.keys.indexOf(key);
+  leaf.keys.splice(pos, 1);
+  R.push({ t:'delete', msg:`从叶子 [${listStr(leaf.keys)}] 里摘掉关键字 ${key}。`
+           + (leaf.keys.length < minK() ? ` 现在只剩 ${leaf.keys.length} 个关键字，少于下限 ${minK()} → 下溢，需要修复。` : ''),
+           hl:{ nodes:[leaf.id] }, kv:`下溢下限：除根外每个结点至少 ${minK()} 个关键字`, code:[5] });
+  R.log('删除', `叶子 [${listStr(leaf.keys)}] 摘掉 ${key}`, 'warn');
+  /* 自底向上修复下溢 */
+  let node = leaf;
+  while (node !== T.root && node.keys.length < minK()){
+    const par = leafPath.pop();
+    if (!par){ break; }
+    const parent = par.node, i = par.idx;
+    const left = i > 0 ? parent.children[i-1] : null;
+    const right = i + 1 < parent.children.length ? parent.children[i+1] : null;
+    if (left && left.keys.length > minK()){
+      const sep = parent.keys[i-1], moved = left.keys.pop();
+      let child = null; if (!left.leaf) child = left.children.pop();
+      parent.keys[i-1] = moved; node.keys.unshift(sep);
+      if (child) node.children.unshift(child);
+      R.push({ t:'borrow', msg:`左兄弟 [${listStr(left.keys)}] 有富余（${left.keys.length + 1} 个关键字 > 下限 ${minK()}）→ 向它“借”：`
+               + `父结点的分隔关键字 ${sep} 下移到本结点，兄弟最大的 ${moved} 上移补位。`,
+               hl:{ nodes:[node.id, left.id, parent.id], cells:[{ id:node.id, i:0, cls:'hi' }, { id:left.id, i:left.keys.length - 1, cls:'hi' }] },
+               kv:`效果相当于一次旋转；借完两边都满足下限`, code:[7] });
+      R.log('借位', `${moved} 从左边上移，${sep} 下移`, 'done');
+    } else if (right && right.keys.length > minK()){
+      const sep = parent.keys[i], moved = right.keys.shift();
+      let child = null; if (!right.leaf) child = right.children.shift();
+      parent.keys[i] = moved; node.keys.push(sep);
+      if (child) node.children.push(child);
+      R.push({ t:'borrow', msg:`左兄弟没有富余，但右兄弟 [${listStr(right.keys)}] 还有余量 → 借右兄弟：`
+               + `父结点的 ${sep} 下移，兄弟最小的 ${moved} 上移。`,
+               hl:{ nodes:[node.id, right.id, parent.id], cells:[{ id:node.id, i:node.keys.length - 1, cls:'hi' }, { id:right.id, i:0, cls:'hi' }] },
+               code:[8] });
+      R.log('借位', `${moved} 从右边上移，${sep} 下移`, 'done');
+    } else if (left){
+      const sep = parent.keys[i-1];
+      left.keys.push(sep, ...node.keys);
+      if (!left.leaf) left.children.push(...node.children);
+      parent.keys.splice(i-1, 1); parent.children.splice(i, 1);
+      R.push({ t:'merge', msg:`兄弟都没有富余 → 合并：父结点的分隔关键字 ${sep} 下移到左兄弟，`
+               + `本结点并入左兄弟得到 [${listStr(left.keys)}]；父结点少一个关键字、少一个孩子指针。`,
+               hl:{ nodes:[left.id, parent.id], cells:[{ id:left.id, i:left.keys.indexOf(sep), cls:'hi' }] },
+               kv:`合并后结点更深一层的数据都挤到一个结点里`, code:[10] });
+      R.log('合并', `左兄弟与当前结点合并成 [${listStr(left.keys)}]`, 'warn');
+    } else {
+      const sep = parent.keys[i];
+      node.keys.push(sep, ...right.keys);
+      if (!node.leaf) node.children.push(...right.children);
+      parent.keys.splice(i, 1); parent.children.splice(i + 1, 1);
+      R.push({ t:'merge', msg:`没有左兄弟 → 把右兄弟并进来：父结点的 ${sep} 下移，合并成 [${listStr(node.keys)}]。`,
+               hl:{ nodes:[node.id, parent.id], cells:[{ id:node.id, i:node.keys.indexOf(sep), cls:'hi' }] }, code:[10] });
+      R.log('合并', `与右兄弟合并成 [${listStr(node.keys)}]`, 'warn');
+    }
+    node = parent;                       // 父结点可能也下溢 → 继续往上
+  }
+  if (T.root.keys.length === 0){
+    if (T.root.leaf){
+      T.root = null;                       // 最后一个关键字被删掉 → 变成空树
+      R.push({ t:'fix', msg:`根结点（也是叶子）已经没有关键字了 → 整棵树变成空树。`,
+               hl:{}, code:[13] });
+      R.log('空树', `最后一个关键字被删除`, 'warn');
+    } else {
+      T.root = T.root.children[0];
+      R.push({ t:'fix', msg:`根结点已经空了：把唯一的那个孩子提升为新的根，树高 −1（这是 B 树唯一会“变矮”的情况）。`,
+               hl:{ nodes:[T.root.id] }, code:[13] });
+      R.log('降层', `根被孩子顶替，树高 −1`, 'done');
+    }
+  }
+  const st = treeStats(T);
+  R.push({ t:'done', msg:`删除 ${key} 完成：所有结点都满足关键字数下限，叶子仍在同一层，树高 ${st.height}。`,
+           kv:`关键字 ${st.keys} 个，结点 ${st.nodes} 个`, code:[14] });
+  return true;
+}
+
+/* 查找 */
+function bSearch(T, key, R){
+  if (!T.root){ R.push({ t:'done', msg:'树是空的，查找失败。', hl:{}, code:[1] }); return false; }
+  let n = T.root, cmp = 0;
+  for (;;){
+    let i = 0; while (i < n.keys.length && n.keys[i] < key) i++;
+    cmp++;
+    const hit = i < n.keys.length && n.keys[i] === key;
+    R.push({ t: hit ? 'done' : 'compare',
+             msg: hit ? `命中！在第 ${cmp} 层的结点 [${listStr(n.keys)}] 里找到 ${key}（一共比较了 ${cmp} 次结点内的检索）。`
+                      : `在结点 [${listStr(n.keys)}] 内查找 ${key}：`
+                        + (i >= n.keys.length ? `比所有关键字都大 → 走最右边的孩子。` : `${key} < ${n.keys[i]} → 走第 ${i} 个孩子。`),
+             kv: `B 树的查找代价 = 结点内二分/顺序查找 + 树高（磁盘 I/O 次数 ≈ 树高）`,
+             hl:{ nodes:[n.id], cells:i < n.keys.length ? [{ id:n.id, i:i, cls: hit ? 'hi' : 'cmp' }] : [] }, code:[2] });
+    if (hit) return true;
+    if (n.leaf) break;
+    n = n.children[i];
+  }
+  R.push({ t:'done', msg:`走到了叶子 [${listStr(n.keys)}] 仍然没有 ${key} → 查找失败。`, hl:{ nodes:[n.id] }, code:[4] });
+  return false;
+}
+
+/* 子树里的最大关键字：范围查询用它剪枝（整棵子树都比 lo 小就跳过） */
+function subtreeMax(n){
+  while (!n.leaf) n = n.children[n.children.length - 1];
+  return n.keys.length ? n.keys[n.keys.length - 1] : -Infinity;
+}
+
+/* 范围查询：B 树只能中序遍历，取一段就得在父结点与子树之间来回走 */
+function bRange(T, lo, hi, R){
+  if (!T.root){ R.push({ t:'done', msg:'树是空的。', hl:{}, code:[1] }); return []; }
+  const out = [];
+  R.push({ t:'range', msg:`B 树的范围查询 [${lo}, ${hi}]：关键字散落在所有结点里，只能做“中序遍历”——一路往左下潜，`
+           + `取完一棵子树还要回到父结点接着取。`,
+           kv:`结点之间没有直接通路，每换一个结点就是一次新的磁盘 I/O → 范围查询是 B 树的弱项`,
+           hl:{}, code:[2] });
+  let finished = false;
+  const walk = (node) => {
+    for (let i = 0; i < node.keys.length; i++){
+      const child = node.leaf ? null : node.children[i];
+      if (child && subtreeMax(child) >= lo){
+        R.push({ t:'range', msg:`还要往左下走：第 ${i} 棵子树里有 ≥ ${lo} 的关键字（这棵子树最大 = ${subtreeMax(child)}）。`,
+                 hl:{ nodes:[node.id, child.id], edges:[node.id + '>' + child.id] }, code:[3] });
+        if (walk(child)) return true;
+        R.push({ t:'range', msg:`这棵子树取完了，**回到父结点** [${listStr(node.keys)}] 继续往后取。`,
+                 kv:`中序遍历的代价：每棵子树都要“下去再上来”`, hl:{ nodes:[node.id] }, code:[3] });
+      }
+      const v = node.keys[i];
+      if (v > hi){ finished = true; return true; }
+      if (v >= lo){
+        out.push(v);
+        R.push({ t:'range', msg:`取到关键字 ${v}（第 ${out.length} 个）。`, kv:`目前结果：[${out.join(' ')}]`,
+                 hl:{ nodes:[node.id], cells:[{ id:node.id, i:i, cls:'hi' }] }, code:[4] });
+      }
+    }
+    const last = node.leaf ? null : node.children[node.keys.length];
+    if (last && subtreeMax(last) >= lo){
+      if (walk(last)) return true;
+      R.push({ t:'range', msg:`最右边那棵子树也取完了，回到父结点 [${listStr(node.keys)}]。`,
+               hl:{ nodes:[node.id] }, code:[3] });
+    }
+    return false;
+  };
+  walk(T.root);
+  R.push({ t:'range', msg:`范围查询结束：${finished ? `遇到超过 ${hi} 的关键字就停` : '整棵树扫完'}，结果 [${out.join(' ')}] 共 ${out.length} 个。`,
+           kv:`同样一次范围查询，B+ 树只需要定位一次再顺着叶子链扫`, hl:{}, code:[5] });
+  R.log('范围查询', `[${lo}, ${hi}] → [${out.join(' ')}]`, 'done');
+  return out;
+}
+
+/* ---------------------------------------------------------------- B+ 树
+   与 B 树的三个关键差别：
+   1) 所有关键字只存在叶子上，内部结点只放“索引”（= 右子树最小关键字）；
+   2) 叶子之间用指针串成有序链表，范围查询可以顺着链扫；
+   3) 叶子分裂把右半第一个关键字**复制**上去；索引结点分裂把中间关键字**搬走**上去。 */
+
+function bpInsert(T, key, R){
+  if (!T.root){
+    T.root = newNode(true); T.root.keys.push(key);
+    R.push({ t:'insert', msg:`树是空的：${key} 放进唯一的叶子结点。B+ 树的**所有关键字都在叶子上**，内部结点只放索引。`,
+             kv:`${M} 阶：每个结点最多 ${maxK()} 个关键字；除根外至少 ${minK()} 个`,
+             hl:{ nodes:[T.root.id], cells:[{ id:T.root.id, i:0, cls:'hi' }] }, code:[1] });
+    R.log('插入', `${key} 成为唯一的叶子`, '');
+    return true;
+  }
+  const path = [];
+  let n = T.root;
+  for (;;){
+    if (n.leaf) break;
+    let i = 0; while (i < n.keys.length && n.keys[i] <= key) i++;
+    R.push({ t:'compare', msg:`在索引结点 [${listStr(n.keys)}] 里比较 ${key}：这里每个关键字都是“右边那棵子树的最小关键字”。`
+             + (i === 0 ? `${key} 比 ${n.keys[0]} 还小 → 走第 0 个孩子。`
+                        : `${key} ≥ ${n.keys[i-1]} → 走第 ${i} 个孩子（等于分隔符时也要往右走，因为关键字只存在叶子上）。`),
+             kv:`索引结点有 ${n.keys.length} 个关键字 → ${n.children.length} 个孩子`,
+             hl:{ nodes:[n.id], cells:i < n.keys.length ? [{ id:n.id, i:i, cls:'cmp' }] : [{ id:n.id, i:n.keys.length - 1, cls:'cmp' }] },
+             code:[4] });
+    path.push({ node:n, idx:i });
+    n = n.children[i];
+  }
+  let pos = 0; while (pos < n.keys.length && n.keys[pos] < key) pos++;
+  if (n.keys[pos] === key){
+    R.push({ t:'search', msg:`叶子 [${listStr(n.keys)}] 里已经有 ${key}，B+ 树同样不存重复关键字，插入取消。`,
+             hl:{ nodes:[n.id], cells:[{ id:n.id, i:pos, cls:'cmp' }] }, code:[3] });
+    return false;
+  }
+  n.keys.splice(pos, 0, key);
+  R.push({ t:'insert', msg:`插入到叶子：叶子变成 [${listStr(n.keys)}]。叶子里的关键字保持升序，这样顺着链扫描时天然就是有序的。`,
+           hl:{ nodes:[n.id], cells:[{ id:n.id, i:pos, cls:'hi' }] }, code:[6] });
+  R.log('插入', `${key} 放进叶子 [${listStr(n.keys)}]`, '');
+  let node = n;
+  while (node.keys.length > maxK()){
+    const K = node.keys.length;
+    let right;
+    if (node.leaf){
+      const t = Math.ceil(K / 2);
+      right = newNode(true);
+      right.keys = node.keys.slice(t);
+      node.keys = node.keys.slice(0, t);
+      right.next = node.next; node.next = right;              // 叶子链重新接好
+      R.push({ t:'split', msg:`叶子溢出 → 分裂成 [${listStr(node.keys)}] 和 [${listStr(right.keys)}]，`
+               + `并把右半的第一个关键字 ${right.keys[0]} **复制**到父结点当分隔符（关键字本身仍留在叶子里）。`,
+               hl:{ nodes:[node.id, right.id], cells:[{ id:right.id, i:0, cls:'sp' }] },
+               kv:`叶子的 next 指针也接上了：以后扫描可以直接从左边跳到右边`, code:[8] });
+    } else {
+      const t = Math.floor(K / 2);
+      right = newNode(false);
+      right.children = node.children.slice(t + 1);
+      node.children = node.children.slice(0, t + 1);
+      R.push({ t:'split', msg:`索引结点 [${listStr(node.keys)}] 溢出 → 中间关键字 ${node.keys[t]} 上移给父结点（这里是**搬走**，它只是索引），`
+               + `左右两半各带走一半孩子指针。`,
+               hl:{ nodes:[node.id, right.id] },
+               kv:`注意区别：叶子分裂是“复制上去”，索引结点分裂是“搬上去”`, code:[9] });
+    }
+    const par = path.pop();
+    if (!par){
+      const nr = newNode(false);
+      nr.children = [node, right];
+      T.root = nr; refreshBP(T.root);
+      R.push({ t:'split', msg:`分裂的正是根 → 新建一个根，两个孩子挂在它下面，树高 +1。`,
+               hl:{ nodes:[nr.id], cells:nr.keys.map((v, i) => ({ id:nr.id, i:i, cls:'sp' })),
+                     edges:[nr.id + '>' + node.id, nr.id + '>' + right.id] }, code:[11] });
+      R.log('分裂', `根分裂 → 树高 +1`, 'sp');
+      break;
+    }
+    par.node.children.splice(par.idx + 1, 0, right);
+    refreshBP(T.root);
+    R.push({ t:'fix', msg:`把新结点挂到父结点，并**同步整棵树的分隔符**（内部关键字 = 右子树最小关键字）→ 父结点现在是 [${listStr(par.node.keys)}]。`,
+             hl:{ nodes:[par.node.id], cells:par.node.keys.map((v, i) => ({ id:par.node.id, i:i, cls:'sp' })) },
+             kv:`B+ 树的结构一变，索引就要跟着刷新——这正是“索引与数据分离”的体现`, code:[10] });
+    R.log('分裂', `[${listStr(node.keys)}] / [${listStr(right.keys)}]`, 'sp');
+    node = par.node;
+  }
+  const st = treeStats(T);
+  R.push({ t:'done', msg:`插入 ${key} 完成：每个结点关键字数都在 ${minK()}~${maxK()} 之间，所有叶子仍在同一层，树高 ${st.height}。`,
+           kv:`关键字 ${st.keys} 个，结点 ${st.nodes} 个`, code:[13] });
+  return true;
+}
+
+function bpDelete(T, key, R){
+  if (!T.root) return false;
+  const path = [];
+  let n = T.root;
+  while (!n.leaf){
+    let i = 0; while (i < n.keys.length && n.keys[i] <= key) i++;
+    R.push({ t:'compare', msg:`索引结点 [${listStr(n.keys)}]：${key} `
+             + (i === 0 ? `< ${n.keys[0]} → 走第 0 个孩子。` : `≥ ${n.keys[i-1]} → 走第 ${i} 个孩子。`),
+             hl:{ nodes:[n.id], cells:i < n.keys.length ? [{ id:n.id, i:i, cls:'cmp' }] : [{ id:n.id, i:n.keys.length - 1, cls:'cmp' }] },
+             code:[2] });
+    path.push({ node:n, idx:i });
+    n = n.children[i];
+  }
+  const pos = n.keys.indexOf(key);
+  if (pos < 0){
+    R.push({ t:'done', msg:`叶子 [${listStr(n.keys)}] 里没有 ${key}。B+ 树的查找一定落到叶子，所以可以直接断定关键字不存在。`,
+             hl:{ nodes:[n.id] }, code:[2] });
+    return false;
+  }
+  const wasFirst = (pos === 0);
+  n.keys.splice(pos, 1);
+  R.push({ t:'delete', msg:`从叶子 [${listStr(n.keys)}] 里摘掉 ${key}。`
+           + (wasFirst && n.keys.length ? ` 删掉的正好是叶子的第一个关键字 → 父结点里指向它的索引要换成 ${n.keys[0]}。` : ''),
+           hl:{ nodes:[n.id] }, kv:`除根外每个结点至少 ${minK()} 个关键字，低于就要修复`, code:[5] });
+  /* 删掉叶子第一个关键字时，父结点的索引就过期了：统一刷新一遍 */
+  const beforeKeys = T.root ? (T.root.keys || []).join(',') : '';
+  refreshBP(T.root);
+  const afterKeys = T.root ? (T.root.keys || []).join(',') : '';
+  if (beforeKeys !== afterKeys && n.keys.length >= minK())
+    R.push({ t:'fix', msg:`叶子里的最小关键字变了 → 同步父结点的索引（内部关键字 = 右子树最小关键字）。`,
+             hl:{ nodes:path.length ? [path[path.length - 1].node.id] : [n.id] }, code:[9] });
+  R.log('删除', `叶子 [${listStr(n.keys)}] 摘掉 ${key}`, 'warn');
+  let node = n;
+  while (node !== T.root && node.keys.length < minK()){
+    const par = path.pop();
+    if (!par) break;
+    const parent = par.node, i = par.idx;
+    const left = i > 0 ? parent.children[i-1] : null;
+    const right = i + 1 < parent.children.length ? parent.children[i+1] : null;
+    if (left && left.keys.length > minK()){
+      if (node.leaf){
+        const moved = left.keys.pop();
+        node.keys.unshift(moved);
+        R.push({ t:'borrow', msg:`左兄弟 [${listStr(left.keys)}] 有余量 → 借一个：把兄弟最大的 ${moved} 挪到本结点最前面。`,
+                 hl:{ nodes:[node.id, left.id], cells:[{ id:node.id, i:0, cls:'hi' }] }, code:[7] });
+      } else {
+        node.children.unshift(left.children.pop());
+        R.push({ t:'borrow', msg:`索引结点下溢 → 从左兄弟借一个**孩子指针**（索引关键字是推导出来的，稍后统一刷新）。`,
+                 hl:{ nodes:[node.id, left.id] }, code:[7] });
+      }
+      refreshBP(T.root);
+      R.push({ t:'fix', msg:`同步分隔符：父结点现在是 [${listStr(parent.keys)}]（借位以后索引必须跟着子树的最小关键字更新）。`,
+               hl:{ nodes:[parent.id] }, code:[8] });
+    } else if (right && right.keys.length > minK()){
+      if (node.leaf){
+        const moved = right.keys.shift();
+        node.keys.push(moved);
+        R.push({ t:'borrow', msg:`左兄弟没有余量 → 借右兄弟：把兄弟最小的 ${moved} 挪到本结点末尾。`,
+                 hl:{ nodes:[node.id, right.id], cells:[{ id:node.id, i:node.keys.length - 1, cls:'hi' }] }, code:[7] });
+      } else {
+        node.children.push(right.children.shift());
+        R.push({ t:'borrow', msg:`索引结点下溢 → 从右兄弟借一个孩子指针。`, hl:{ nodes:[node.id, right.id] }, code:[7] });
+      }
+      refreshBP(T.root);
+      R.push({ t:'fix', msg:`同步分隔符：父结点现在是 [${listStr(parent.keys)}]。`, hl:{ nodes:[parent.id] }, code:[8] });
+    } else if (left){
+      if (node.leaf){
+        left.keys = left.keys.concat(node.keys);
+        left.next = node.next;
+        R.push({ t:'merge', msg:`两边都没余量 → 合并：本结点并进左兄弟得到 [${listStr(left.keys)}]，叶子链跳过它直接指向下一个叶子。`,
+                 hl:{ nodes:[left.id] }, code:[10] });
+      } else {
+        left.children = left.children.concat(node.children);
+        R.push({ t:'merge', msg:`索引结点合并：本结点的孩子全部并进左兄弟（关键字稍后统一刷新）。`,
+                 hl:{ nodes:[left.id] }, code:[10] });
+      }
+      parent.children.splice(i, 1);
+      refreshBP(T.root);
+      R.log('合并', `合并后的结点 [${listStr(left.keys)}]`, 'warn');
+    } else {
+      if (node.leaf){
+        node.keys = node.keys.concat(right.keys);
+        node.next = right.next;
+        R.push({ t:'merge', msg:`没有左兄弟 → 把右兄弟并进来，得到 [${listStr(node.keys)}]。`, hl:{ nodes:[node.id] }, code:[10] });
+      } else {
+        node.children = node.children.concat(right.children);
+        R.push({ t:'merge', msg:`没有左兄弟 → 把右兄弟的孩子指针并进来。`, hl:{ nodes:[node.id] }, code:[10] });
+      }
+      parent.children.splice(i + 1, 1);
+      refreshBP(T.root);
+      R.log('合并', `与右兄弟合并 → [${listStr(node.keys)}]`, 'warn');
+    }
+    node = parent;
+  }
+  if (T.root.keys.length === 0){
+    if (T.root.leaf){
+      T.root = null;
+      R.push({ t:'fix', msg:`最后一个关键字被删掉 → B+ 树变成空树。`, hl:{}, code:[13] });
+      R.log('空树', `最后一个关键字被删除`, 'warn');
+    } else {
+      T.root = T.root.children[0];
+      refreshBP(T.root);
+      R.push({ t:'fix', msg:`根只剩一个孩子 → 把它提升为新的根，树高 −1。`, hl:{ nodes:[T.root.id] }, code:[13] });
+      R.log('降层', `根被孩子顶替，树高 −1`, 'done');
+    }
+  }
+  const st = treeStats(T);
+  R.push({ t:'done', msg:`删除 ${key} 完成：每个结点关键字数都 ≥ ${minK()}，叶子仍在同一层，树高 ${st.height}。`,
+           kv:`关键字 ${st.keys} 个，结点 ${st.nodes} 个`, code:[14] });
+  return true;
+}
+
+function bpSearch(T, key, R){
+  if (!T.root){ R.push({ t:'done', msg:'树是空的，查找失败。', hl:{}, code:[1] }); return false; }
+  let n = T.root, level = 0;
+  while (!n.leaf){
+    let i = 0; while (i < n.keys.length && n.keys[i] <= key) i++;
+    level++;
+    R.push({ t:'compare', msg:`索引结点 [${listStr(n.keys)}]：${key} `
+             + (i === 0 ? `< ${n.keys[0]} → 走第 0 个孩子。` : `≥ ${n.keys[i-1]} → 走第 ${i} 个孩子。`),
+             kv:`内部结点只负责导航，不会在这里命中`, hl:{ nodes:[n.id] }, code:[2] });
+    n = n.children[i];
+  }
+  const pos = n.keys.indexOf(key);
+  const hit = pos >= 0;
+  R.push({ t: hit ? 'done' : 'compare',
+           msg: hit ? `一路走到叶子才命中：${key} 在第 ${level + 1} 层的叶子 [${listStr(n.keys)}] 里。`
+                    : `走到叶子 [${listStr(n.keys)}] 仍没有 ${key} → 查找失败（B+ 树必须查到叶子才能确定）。`,
+           kv:`查找路径长度 = 树高，每层一次磁盘 I/O`,
+           hl:{ nodes:[n.id], cells: hit ? [{ id:n.id, i:pos, cls:'hi' }] : [] }, code:[3] });
+  return hit;
+}
+
+/* B+ 树范围查询：定位一次，然后顺着叶子链顺序扫描 */
+function bpRange(T, lo, hi, R){
+  if (!T.root){ R.push({ t:'done', msg:'树是空的。', hl:{}, code:[1] }); return []; }
+  const out = [];
+  R.push({ t:'range', msg:`B+ 树的范围查询 [${lo}, ${hi}]：先像普通查找一样定位到 ${lo} 所在的叶子，然后**顺着叶子链表**往后扫。`,
+           kv:`关键字全在叶子上、叶子又串成链 → 定位一次就够，不用回到父结点`,
+           hl:{}, code:[2] });
+  let n = T.root;
+  while (!n.leaf){
+    let i = 0; while (i < n.keys.length && n.keys[i] <= lo) i++;
+    R.push({ t:'range', msg:`索引结点 [${listStr(n.keys)}]：定位 ${lo} 所属的子树 → 走第 ${i} 个孩子。`,
+             hl:{ nodes:[n.id, n.children[i].id], edges:[n.id + '>' + n.children[i].id] }, code:[3] });
+    n = n.children[i];
+  }
+  R.push({ t:'range', msg:`定位到叶子 [${listStr(n.keys)}]，从它开始扫。`, hl:{ nodes:[n.id] }, code:[3] });
+  let guard = 0;
+  while (n && guard++ < 500){
+    for (let i = 0; i < n.keys.length; i++){
+      const v = n.keys[i];
+      if (v < lo) continue;
+      if (v > hi){
+        R.push({ t:'range', msg:`遇到 ${v} > ${hi}，结束：结果 [${out.join(' ')}] 共 ${out.length} 个。`, hl:{}, code:[5] });
+        R.log('范围查询', `[${lo}, ${hi}] → [${out.join(' ')}]`, 'done');
+        return out;
+      }
+      out.push(v);
+      R.push({ t:'range', msg:`取到 ${v}（第 ${out.length} 个）。`, kv:`目前结果：[${out.join(' ')}]`,
+               hl:{ nodes:[n.id], cells:[{ id:n.id, i:i, cls:'hi' }] }, code:[4] });
+    }
+    if (n.next && n.next.keys.length && n.next.keys[0] <= hi){
+      R.push({ t:'range', msg:`顺着叶子链跳到下一个叶子 [${listStr(n.next.keys)}]——这只是顺序读，比回到父结点重新找便宜得多。`,
+               hl:{ nodes:[n.id, n.next.id], links:[n.id + '>' + n.next.id] }, code:[4] });
+      n = n.next;
+    } else break;
+  }
+  R.push({ t:'range', msg:`范围查询结束：结果 [${out.join(' ')}] 共 ${out.length} 个。`, hl:{}, code:[5] });
+  R.log('范围查询', `[${lo}, ${hi}] → [${out.join(' ')}]`, 'done');
+  return out;
+}
+
+
+/* ---------------------- 伪代码（B 树与 B+ 树共用一份，差别画在注释里） ---------------------- */
+const C = {
+  ins: [
+    'Insert(T, k):',
+    '    if T.root == NULL: 新建根结点, 放入 k; return',
+    '    在结点内查找 k（顺便检查是否已存在）',
+    '    if 命中: 放弃（不允许重复关键字）；否则沿第 i 个孩子向下',
+    '    （重复上一行，直到走到叶子）',
+    '    把 k 插进叶子的正确位置            // 结点内关键字保持升序',
+    '    n = 叶子',
+    '    while n 的关键字个数 > m-1:        // 溢出，必须分裂',
+    '        取中间关键字 up, 把 n 拆成 n 与 right 两半   // B+ 树：叶子复制、索引搬走',
+    '        up 插入父结点, right 挂进父结点的孩子指针',
+    '        if n 原本是根: 新建根, 树高 +1; break',
+    '        n = 父结点                     // 父结点可能同样溢出',
+    '    // 完成：所有叶子仍在同一层'
+  ],
+  del: [
+    'Delete(T, k):',
+    '    查找到 k 所在的结点与位置（找不到就结束）',
+    '    if k 在内部结点:',
+    '        用它左子树里最大的关键字替换 k（B+ 树不会遇到这种情况）',
+    '    从叶子中删除 k                     // 除根外每结点至少 ⌈m/2⌉-1 个关键字',
+    '    n = 叶子',
+    '    while n != 根 and n 的关键字 < 下限:',
+    '        兄弟有富余 → 借：父结点的分隔关键字下移, 兄弟的关键字上移',
+    '        （B+ 树借/还之后还要同步父结点的索引）',
+    '        兄弟都没富余 → 合并：把父结点的分隔关键字一起并进兄弟',
+    '        父结点少一个关键字、少一个孩子指针',
+    '        n = 父结点                     // 可能继续下溢',
+    '    if 根没有关键字: 用它的唯一孩子顶上, 树高 -1',
+    '    // 完成：仍然满足所有性质（叶子同层、结点半满）'
+  ],
+  srch: [
+    'Search(T, k):',
+    '    从根开始: 在结点内找第一个 ≥/&gt; k 的关键字定位孩子',
+    '    命中就返回；否则沿对应孩子指针向下（重复）',
+    '    走到叶子仍未命中 → 关键字不存在（B+ 树必须查到叶子）'
+  ],
+  rng: [
+    'RangeQuery(T, lo, hi):',
+    '    B 树: 关键字散落在各层, 只能中序遍历 —— 每棵子树都要"下去再上来"',
+    '    下潜时剪枝: 子树最大关键字 < lo 就整棵跳过',
+    '    依次取出满足 lo ≤ key ≤ hi 的关键字',
+    '    遇到 key > hi 立即结束',
+    '    B+ 树: 定位到 lo 所在叶子后, 沿叶子链 next 顺序扫描（顺序 I/O）'
+  ]
+};
+
+/* ---------------------- 知识点 ---------------------- */
+const KNOW = {
+  b: {
+    def:`m 阶 <b>B 树</b>满足：<br>
+      · 每个结点最多 <code>m</code> 个孩子、<code>m−1</code> 个关键字；<br>
+      · 除根外每个结点至少 <code>⌈m/2⌉</code> 个孩子（即至少 <code>⌈m/2⌉−1</code> 个关键字），根至少 2 个孩子；<br>
+      · 结点内关键字升序，第 i 个关键字介于第 i、i+1 棵子树的所有关键字之间；<br>
+      · <b>所有叶子都在同一层</b> —— 这保证了树是绝对平衡的；<br>
+      · 关键字分布在所有结点上：内部结点里存的也是真实数据（查找可能在内部结点提前命中）。`
+  },
+  bp: {
+    def:`m 阶 <b>B+ 树</b>的结构要求与 B 树相同，但有两点关键差别：<br>
+      · <b>所有关键字只存在叶子上</b>，内部结点的关键字只是"索引"，通常取右子树的最小关键字；<br>
+      · 叶子之间用指针串成一条有序链表（画面里那排绿色虚线），可以顺序扫描；<br>
+      · 查找一定走到叶子才结束；同一个关键字可能在内部结点里作为索引再出现一次；<br>
+      · 分裂时：叶子把右半第一个关键字<b>复制</b>上去，索引结点把中间关键字<b>搬</b>上去。`
+  },
+  cmp:[
+    ['关键字位置', '所有结点都存真实关键字', '只在叶子存，内部结点只存索引'],
+    ['查找命中', '可能在内部结点提前命中', '必须走到叶子'],
+    ['叶子链接', '没有', '有 next 指针，串成有序链表'],
+    ['分裂方式', '中间关键字上移（搬走）', '叶子"复制"上去 / 索引"搬走"上去'],
+    ['范围查询', '中序遍历，来回跳结点', '定位一次 + 顺叶子链扫描，快得多'],
+    ['扇出与树高', '同样阶数下扇出稍小', '内部不存数据 → 扇出更大、树更矮'],
+    ['典型用途', '文件系统、内存索引', '数据库索引（InnoDB、Oracle 等）']
+  ],
+  why:`· 查找 / 插入 / 删除都是 <b>O(log n)</b>，但真正的代价是<b>磁盘 I/O 次数 ≈ 树高</b>。<br>
+    · 工程上让一个结点正好等于一个磁盘页（4KB / 16KB），m 取几百：亿级记录也只有 3~4 层，
+      查一次只要 3~4 次磁盘访问 —— 这就是 B 树"高扇出、矮胖"的原因。<br>
+    · B+ 树更适合数据库：内部结点不存数据 → 同页能放更多索引 → 树更矮；
+      叶子成链 → 范围查询/排序/分页都能顺序读；每次查询代价稳定（都要走到叶子）。<br>
+    · 下溢的两种修复手段：向兄弟<b>借</b>（旋转）或与兄弟<b>合并</b>；最坏一路传到根，根空了就降一层。`
+};
+
+/* ---------------------- 渲染：布局与绘制 ---------------------- */
+const KEY_W = 34, KEY_H = 32, PADX = 8, PADY = 7, LEVEL_H = 94, SIB_GAP = 24, TOP = 34, MARGIN = 46;
+const svgNS = 'http://www.w3.org/2000/svg';
+function svgEl(name, attrs){
+  const e = document.createElementNS(svgNS, name);
+  if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+function sync(container, list, keyFn, apply){
+  if (!container._map) container._map = new Map();
+  const seen = new Set();
+  list.forEach((item, idx) => {
+    const k = keyFn(item); seen.add(k);
+    let el = container._map.get(k);
+    if (!el){ el = svgEl('g', {}); el._key = k; container._map.set(k, el); }
+    apply(el, item, idx);
+    if (container.children[idx] !== el) container.insertBefore(el, container.children[idx] || null);
+  });
+  for (const [k, el] of Array.from(container._map)) if (!seen.has(k)){ el.remove(); container._map.delete(k); }
+}
+
+const boxW = k => k * KEY_W + 2 * PADX;
+function layoutSnap(snap){
+  const map = new Map(snap.nodes.map(n => [n.id, n]));
+  const empty = { items:[], pos:new Map(), edges:[], links:[], W:640, H:320 };
+  if (!snap.root || !map.has(snap.root)) return empty;
+  const width = new Map();
+  (function measure(id){
+    const n = map.get(id), own = boxW(n.keys.length);
+    if (!n.childIds.length){ width.set(id, own); return own; }
+    let sum = 0; n.childIds.forEach(c => sum += measure(c));
+    sum += SIB_GAP * (n.childIds.length - 1);
+    const w = Math.max(own, sum);
+    width.set(id, w);
+    return w;
+  })(snap.root);
+  const items = [], pos = new Map();
+  let maxDepth = 0;
+  (function place(id, left, depth){
+    const n = map.get(id), w = width.get(id), own = boxW(n.keys.length);
+    const item = { id, n, x:left + (w - own) / 2, y:depth * LEVEL_H + TOP, w:own, h:KEY_H + 2 * PADY, depth };
+    items.push(item); pos.set(id, item);
+    maxDepth = Math.max(maxDepth, depth);
+    if (n.childIds.length){
+      let sum = 0; n.childIds.forEach(c => sum += width.get(c));
+      sum += SIB_GAP * (n.childIds.length - 1);
+      let cx = left + (w - sum) / 2;
+      n.childIds.forEach(cid => { place(cid, cx, depth + 1); cx += width.get(cid) + SIB_GAP; });
+    }
+  })(snap.root, MARGIN, 0);
+  const edges = [], links = [];
+  snap.nodes.forEach(n => n.childIds.forEach((cid, i) => edges.push({ from:n.id, to:cid, idx:i })));
+  snap.nodes.forEach(n => { if (n.leaf && n.next) links.push({ from:n.id, to:n.next }); });
+  return { items, pos, edges, links, W:width.get(snap.root) + 2 * MARGIN,
+           H:(maxDepth + 1) * LEVEL_H + TOP + 34 };
+}
+
+let prevPos = new Map(), animToken = 0;
+const raf = (typeof requestAnimationFrame === 'function') ? (fn => requestAnimationFrame(fn)) : (fn => setTimeout(fn, 16));
+
+function renderTree(step){
+  const svg = $('svg');
+  const snap = step.tree, hl = step.hl || {};
+  const L = layoutSnap(snap);
+  svg.setAttribute('viewBox', `0 0 ${Math.round(L.W)} ${Math.round(L.H)}`);
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  let gEdges = svg.querySelector('g.gEdges'), gLinks = svg.querySelector('g.gLinks'), gNodes = svg.querySelector('g.gNodes');
+  if (!gEdges){
+    const defs = svgEl('defs');
+    const mk = svgEl('marker', { id:'arrow', viewBox:'0 0 10 10', refX:'9', refY:'5', markerWidth:'6', markerHeight:'6', orient:'auto-start-reverse' });
+    mk.append(svgEl('path', { d:'M 0 0 L 10 5 L 0 10 z', fill:'#3ddc97' }));
+    defs.append(mk);
+    gEdges = svgEl('g', { class:'gEdges' }); gLinks = svgEl('g', { class:'gLinks' }); gNodes = svgEl('g', { class:'gNodes' });
+    svg.append(defs, gEdges, gLinks, gNodes);
+  }
+  const nodeSet = new Set(hl.nodes || []);
+  const cellOf = (id, i) => {
+    const c = (hl.cells || []).find(c => c.id === id && c.i === i);
+    return c ? c.cls : '';
+  };
+  /* 连线 */
+  sync(gEdges, L.edges, e => e.from + '>' + e.to, (g, e) => {
+    const p = L.pos.get(e.from), c = L.pos.get(e.to);
+    if (!p || !c){ g.style.display = 'none'; return; }
+    g.style.display = '';
+    if (!g._line) g._line = svgEl('line', { class:'edge' });
+    if (!g._line.parentNode) g.append(g._line);
+    const sx = p.x + PADX + Math.min(e.idx, p.n.keys.length) * KEY_W, sy = p.y + p.h;
+    const ex = c.x + c.w / 2, ey = c.y;
+    g._line.setAttribute('x1', sx); g._line.setAttribute('y1', sy);
+    g._line.setAttribute('x2', ex); g._line.setAttribute('y2', ey - 2);
+    const key = e.from + '>' + e.to;
+    const active = (hl.edges || []).indexOf(key) >= 0;
+    g._line.setAttribute('class', 'edge' + (active ? ' act' : ''));
+  });
+  /* B+ 树的叶子链 */
+  sync(gLinks, L.links, l => l.from + '>' + l.to, (g, l) => {
+    const a = L.pos.get(l.from), b = L.pos.get(l.to);
+    if (!a || !b){ g.style.display = 'none'; return; }
+    g.style.display = '';
+    if (!g._line){ g._line = svgEl('line', { class:'leaf', 'marker-end':'url(#arrow)' }); g.append(g._line); }
+    const ax = a.x + a.w, ay = a.y + a.h / 2, bx = b.x, by = b.y + b.h / 2;
+    g._line.setAttribute('x1', ax); g._line.setAttribute('y1', ay);
+    g._line.setAttribute('x2', bx); g._line.setAttribute('y2', by);
+    g._line.setAttribute('class', 'leaf' + ((hl.links || []).indexOf(l.from + '>' + l.to) >= 0 ? ' hi' : ''));
+  });
+  /* 结点 */
+  sync(gNodes, L.items, it => it.id, (g, it) => {
+    const n = it.n, k = n.keys.length;
+    const maxk = maxK();
+    if (!g._rect){
+      g._rect = svgEl('rect', { class:'nd', rx:9 });
+      g.append(g._rect);                            // 结点外框（画在关键字下面）
+      g._cells = []; g._seps = []; g._texts = [];
+      for (let i = 0; i < 8; i++){                 // m ≤ 6 时最多 5 个关键字，留点余量
+        const c = svgEl('rect', { class:'cell' }); g._cells.push(c); g.append(c);
+      }
+      for (let i = 0; i < 7; i++){ const s = svgEl('line', { class:'sep' }); g._seps.push(s); g.append(s); }
+      for (let i = 0; i < 8; i++){ const t = svgEl('text', { class:'key' }); g._texts.push(t); g.append(t); }
+      g._nlab = svgEl('text', { class:'nlab' }); g.append(g._nlab);
+      g._halo = svgEl('circle', { class:'halo', r:16 }); g.append(g._halo);
+    }
+    let cls = 'nd' + (n.leaf ? ' leaf' : '');
+    if (nodeSet.has(n.id)) cls += ' act';
+    if ((hl.hi || []).indexOf(n.id) >= 0) cls += ' hi';
+    if ((hl.sp || []).indexOf(n.id) >= 0) cls += ' sp';
+    if ((hl.bad || []).indexOf(n.id) >= 0) cls += ' bad';
+    if ((hl.done || []).indexOf(n.id) >= 0) cls += ' done';
+    g.setAttribute('class', cls);
+    g._rect.setAttribute('x', it.x); g._rect.setAttribute('y', it.y);
+    g._rect.setAttribute('width', it.w); g._rect.setAttribute('height', it.h);
+    for (let i = 0; i < g._cells.length; i++){
+      const cell = g._cells[i], sep = g._seps[i - 1], txt = g._texts[i];
+      if (i < k){
+        cell.style.display = '';
+        cell.setAttribute('x', it.x + PADX + i * KEY_W); cell.setAttribute('y', it.y + PADY);
+        cell.setAttribute('width', KEY_W); cell.setAttribute('height', KEY_H);
+        cell.setAttribute('class', 'cell' + (cellOf(n.id, i) ? ' ' + cellOf(n.id, i) : ''));
+        txt.style.display = '';
+        txt.setAttribute('x', it.x + PADX + i * KEY_W + KEY_W / 2);
+        txt.setAttribute('y', it.y + PADY + KEY_H / 2 + 5);
+        txt.setAttribute('class', 'key' + (cellOf(n.id, i) ? ' ' + cellOf(n.id, i) : ''));
+        txt.textContent = n.keys[i];
+      } else {
+        cell.style.display = 'none';
+        txt.style.display = 'none';
+        txt.textContent = '';
+      }
+      if (sep){ if (i >= 1 && i < k){ sep.style.display = ''; sep.setAttribute('x1', it.x + PADX + i * KEY_W); sep.setAttribute('x2', it.x + PADX + i * KEY_W); sep.setAttribute('y1', it.y + PADY); sep.setAttribute('y2', it.y + PADY + KEY_H); } else sep.style.display = 'none'; }
+    }
+    const bad = (k > maxk) || (k < minK() && n.depth > 0);
+    g._nlab.textContent = 'n=' + k;
+    g._nlab.setAttribute('x', it.x + it.w / 2);
+    g._nlab.setAttribute('y', it.y + it.h + 14);
+    g._nlab.setAttribute('class', 'nlab' + (k > maxk ? ' bad' : ''));
+    g._halo.style.display = ((hl.hi || []).indexOf(n.id) >= 0 || (hl.sp || []).indexOf(n.id) >= 0) ? '' : 'none';
+    g._halo.setAttribute('cx', it.x + it.w / 2); g._halo.setAttribute('cy', it.y + it.h / 2);
+  });
+  $('emptyTip').style.display = L.items.length ? 'none' : 'flex';
+}
+
+/* ---------------------- 界面状态与渲染 ---------------------- */
+let T = newTree(false);          // 当前树（结构会被算法直接改写）
+let bpMode = false;              // false = B 树，true = B+ 树
+let steps = [], cursor = 0;
+let playing = false, timer = null, playToken = 0, speed = 1.2;
+let lastOpKind = 'ins';
+const NULLREC = { push(){}, log(){} };
+
+function statsOf(snap){
+  let keys = 0, maxD = 0, lo = Infinity, hi = 0, leafD = -1, uniform = true;
+  snap.nodes.forEach(n => {
+    keys += n.keys.length;
+    maxD = Math.max(maxD, n.depth);
+    lo = Math.min(lo, n.keys.length);
+    hi = Math.max(hi, n.keys.length);
+    if (n.leaf){ if (leafD < 0) leafD = n.depth; else if (leafD !== n.depth) uniform = false; }
+  });
+  return { nodes:snap.nodes.length, keys, height:snap.nodes.length ? maxD + 1 : 0,
+           lo:snap.nodes.length ? lo : 0, hi:hi, uniform };
+}
+function allKeys(n, out){
+  out = out || [];
+  if (!n) return out;
+  if (T.bp){                                   // B+ 树：关键字只在叶子上，顺叶子链收集
+    let leaf = n; while (!leaf.leaf) leaf = leaf.children[0];
+    const seen = new Set();
+    while (leaf){
+      leaf.keys.forEach(k => { if (!seen.has(k)){ seen.add(k); out.push(k); } });
+      leaf = leaf.next;
+    }
+    return out;
+  }
+  for (let i = 0; i < n.keys.length; i++){
+    if (!n.leaf) allKeys(n.children[i], out);
+    out.push(n.keys[i]);
+  }
+  if (!n.leaf) allKeys(n.children[n.keys.length], out);
+  return out;
+}
+/* 静默建树：只改结构，不产生步骤 */
+function buildTree(keys){
+  T = newTree(bpMode);
+  UID = 0;
+  for (const k of keys) (bpMode ? bpInsert : bInsert)(T, k, NULLREC);
+}
+
+const BADGE = { init:'init', search:'search', compare:'compare', insert:'insert', split:'split',
+                delete:'delete', borrow:'borrow', merge:'merge', fix:'fix', range:'range', done:'done', info:'info' };
+const TYPE_NAME = { init:'初始化', search:'查找', compare:'比较', insert:'插入', split:'分裂',
+                    delete:'删除', borrow:'借位', merge:'合并', fix:'修复', range:'范围查询', done:'完成', info:'说明' };
+
+function renderCaption(s){
+  const b = $('capBadge');
+  if (!s){
+    b.textContent = '准备就绪'; b.dataset.t = 'info';
+    $('capText').textContent = `点「自动演示」看 ${bpMode ? 'B+ 树' : 'B 树'} 怎样分裂与合并，或直接插入 / 删除逐步观察。`;
+    $('capKv').textContent = '';
+    return;
+  }
+  b.textContent = s.title || TYPE_NAME[s.t] || s.t;
+  b.dataset.t = BADGE[s.t] || 'info';
+  $('capText').textContent = s.msg;
+  $('capKv').textContent = s.kv || '';
+}
+function buildCode(kind){
+  lastOpKind = kind;
+  const label = { ins:'插入 Insert', del:'删除 Delete', srch:'查找 Search', rng:'范围查询 RangeQuery' }[kind];
+  $('codeTag').textContent = (bpMode ? 'B+ 树' : 'B 树') + ' · ' + label;
+  $('code').innerHTML = C[kind].map(l => `<span class="ln">${l || ' '}</span>`).join('');
+}
+function updateCode(s){
+  const hl = (s && s.code) || [];
+  Array.from($('code').children).forEach((el, i) => {
+    const on = hl.indexOf(i + 1) >= 0;
+    el.className = 'ln' + (on ? ' hl' + (s.t === 'split' || s.t === 'fix' ? ' sp' : (s.t === 'delete' || s.t === 'merge' ? ' dl' : '')) : '');
+  });
+  const first = $('code').querySelector('.ln.hl');
+  if (first && first.scrollIntoView) first.scrollIntoView({ block:'nearest' });
+}
+function buildLog(rec){
+  const box = $('log');
+  const logs = (rec && rec.logs) || [];
+  box.innerHTML = logs.map(e =>
+    `<div class="li ${e.cls}" data-step="${e.step}"><span class="t">${e.tag}</span><span class="m">${e.text}</span></div>`).join('');
+  Array.from(box.children).forEach(el =>
+    el.addEventListener('click', () => { pause(); goto(+el.dataset.step); }));
+}
+function updateLog(){
+  let last = null;
+  Array.from($('log').children).forEach(el => {
+    const on = +el.dataset.step <= cursor;
+    el.classList.toggle('cur', on);
+    if (on) last = el;
+  });
+  if (last && last.scrollIntoView) last.scrollIntoView({ block:'nearest' });
+}
+function buildAxis(){
+  const box = $('axis');
+  if (!steps.length){ box.innerHTML = ''; return; }
+  const stride = Math.max(1, Math.ceil(steps.length / 60));
+  let html = '';
+  for (let i = 0; i < steps.length; i += stride){
+    const t = steps[i].t;
+    const cls = (t === 'split' || t === 'fix') ? 'split'
+              : (t === 'delete' || t === 'borrow' || t === 'merge') ? 'del'
+              : (t === 'range' ? 'range' : '');
+    html += `<div class="tick ${cls}" data-i="${i}" title="步骤 ${i + 1}">${i + 1}</div>`;
+  }
+  if ((steps.length - 1) % stride !== 0)
+    html += `<div class="tick" data-i="${steps.length - 1}" title="最后一步">${steps.length}</div>`;
+  box.innerHTML = html;
+  Array.from(box.children).forEach(el =>
+    el.addEventListener('click', () => { pause(); goto(+el.dataset.i); }));
+}
+function updateAxis(){
+  const box = $('axis');
+  let curEl = null;
+  Array.from(box.children).forEach(el => { if (+el.dataset.i <= cursor) curEl = el; });
+  Array.from(box.children).forEach(el => {
+    el.classList.toggle('cur', el === curEl);
+    el.classList.toggle('past', curEl !== null && +el.dataset.i < +curEl.dataset.i);
+  });
+  if (curEl && curEl.scrollIntoView) curEl.scrollIntoView({ block:'nearest', inline:'nearest' });
+}
+function updateSidebar(s){
+  const snap = s ? s.tree : snapTree(T);
+  const st = statsOf(snap);
+  $('stType').textContent = bpMode ? 'B+ 树' : 'B 树';
+  $('stM').textContent = M;
+  $('stKeys').textContent = st.keys;
+  $('stNodes').textContent = st.nodes;
+  $('stH').textContent = st.height;
+  $('stRange').textContent = st.nodes ? `${st.lo} ~ ${st.hi}` : '—';
+  $('stRange').className = 'v' + (st.nodes && (st.lo < minK() || st.hi > maxK()) ? ' hl' : '');
+  $('statTag').textContent = `${M} 阶 · 关键字上限 ${maxK()}`;
+  $('stageTag').textContent = st.nodes
+    ? `${st.nodes} 个结点 · 树高 ${st.height}${st.uniform ? ' · 叶子同层 ✓' : ' · 叶子不同层 ✗'}`
+    : '空树';
+  $('defNote').innerHTML = bpMode ? KNOW.bp.def : KNOW.b.def;
+  $('whyNote').innerHTML = KNOW.why;
+  const head = '<thead><tr><th>对比项</th><th>B 树</th><th>B+ 树</th></tr></thead>';
+  const body = KNOW.cmp.map(r =>
+    `<tr><td class="k">${r[0]}</td><td class="${bpMode ? '' : 'on'}">${r[1]}</td><td class="${bpMode ? 'on' : ''}">${r[2]}</td></tr>`).join('');
+  $('cmpTable').innerHTML = head + '<tbody>' + body + '</tbody>';
+}
+function renderAll(){
+  const s = steps.length ? steps[Math.min(cursor, steps.length - 1)] : null;
+  renderTree(s || { tree:snapTree(T), hl:{} });
+  renderCaption(s);
+  updateCode(s);
+  updateSidebar(s);
+  updateAxis();
+  updateLog();
+  $('stepInfo').textContent = steps.length ? `步骤 ${cursor + 1} / ${steps.length}` : '步骤 0 / 0';
+}
+function setSteps(rec, kind, note){
+  steps = rec.steps; cursor = 0;
+  buildCode(kind); buildAxis(); buildLog(rec);
+  renderAll();
+  if (note) $('playState').textContent = note;
+}
+
+/* ---------------------- 操作 ---------------------- */
+function readVal(id){
+  const inp = $(id), v = parseInt(inp.value, 10);
+  if (!Number.isFinite(v) || v < 1 || v > 99){
+    inp.classList.add('bad'); setTimeout(() => inp.classList.remove('bad'), 600);
+    $('playState').textContent = '请输入 1~99 的整数';
+    return null;
+  }
+  return v;
+}
+function doInsert(v, quiet){
+  const R = mkRec(T);
+  const ok = (bpMode ? bpInsert : bInsert)(T, v, R);
+  setSteps(R, 'ins', `插入 ${v}${ok ? '' : '（已存在，未改变）'}`);
+  if (!quiet) play();
+  return ok;
+}
+function doDelete(v, quiet){
+  const R = mkRec(T);
+  const ok = (bpMode ? bpDelete : bDelete)(T, v, R);
+  setSteps(R, 'del', `删除 ${v}${ok ? '' : '（不存在）'}`);
+  if (!quiet) play();
+  return ok;
+}
+function doFind(v){
+  const R = mkRec(T);
+  (bpMode ? bpSearch : bSearch)(T, v, R);
+  setSteps(R, 'srch', `查找 ${v}`);
+  play();
+}
+function doRange(lo, hi){
+  const R = mkRec(T);
+  (bpMode ? bpRange : bRange)(T, lo, hi, R);
+  setSteps(R, 'rng', `范围查询 [${lo}, ${hi}]`);
+  play();
+}
+
+/* ---------------------- 播放控制 ---------------------- */
+function goto(i){
+  if (!steps.length) return;
+  cursor = Math.max(0, Math.min(steps.length - 1, i));
+  renderAll();
+}
+function stepMs(s){
+  const base = (s.t === 'compare' ? 520 : (s.t === 'split' || s.t === 'merge') ? 900
+              : (s.t === 'delete' || s.t === 'borrow') ? 760 : s.t === 'range' ? 620 : 700);
+  return base / speed;
+}
+function updatePlayBtn(){ $('bPlay').textContent = playing ? '❚❚ 暂停' : '▶ 播放'; }
+function playLoop(token){
+  if (!playing || token !== playToken) return;
+  if (cursor >= steps.length - 1){ playing = false; updatePlayBtn(); $('playState').textContent = '已到最后一步'; return; }
+  timer = setTimeout(() => {
+    if (!playing || token !== playToken) return;
+    goto(cursor + 1); playLoop(token);
+  }, stepMs(steps[cursor]));
+}
+function play(){
+  if (!steps.length) return;
+  if (cursor >= steps.length - 1) goto(0);
+  playing = true; playToken++; updatePlayBtn(); $('playState').textContent = '播放中…';
+  playLoop(playToken);
+}
+function pause(){
+  playing = false; playToken++;
+  if (timer) clearTimeout(timer);
+  timer = null; updatePlayBtn();
+}
+function waitWhilePlaying(){
+  return new Promise(res => {
+    if (!playing) return res();
+    const iv = setInterval(() => { if (!playing){ clearInterval(iv); res(); } }, 100);
+  });
+}
+async function runOps(ops, note){
+  pause();
+  if (note) $('playState').textContent = note;
+  for (const op of ops){
+    if (op.kind === 'ins') doInsert(op.v); else doDelete(op.v);
+    play();
+    await waitWhilePlaying();
+    await new Promise(r => setTimeout(r, 240 / speed));
+  }
+}
+
+/* ---------------------- 平移 / 缩放 ---------------------- */
+function initPanZoom(){
+  const stage = $('stage'), svg = $('svg');
+  let drag = null, scale = 1, tx = 0, ty = 0;
+  const apply = () => { svg.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
+  svg.style.transition = 'transform .1s linear';
+  stage.addEventListener('mousedown', e => {
+    if (e.target.closest && e.target.closest('.hint, .legend-mini')) return;
+    drag = { x:e.clientX, y:e.clientY, tx:tx, ty:ty }; stage.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', e => {
+    if (!drag) return;
+    tx = drag.tx + (e.clientX - drag.x); ty = drag.ty + (e.clientY - drag.y); apply();
+  });
+  window.addEventListener('mouseup', () => { drag = null; stage.style.cursor = 'grab'; });
+  stage.addEventListener('wheel', e => {
+    e.preventDefault();
+    scale = Math.max(0.3, Math.min(3.2, scale * (e.deltaY < 0 ? 1.12 : 1 / 1.12))); apply();
+  }, { passive:false });
+  stage.addEventListener('dblclick', () => { scale = 1; tx = 0; ty = 0; apply(); });
+}
+
+/* ---------------------- 启动 ---------------------- */
+function setTreeType(bp){
+  const keys = allKeys(T.root);
+  bpMode = bp;
+  $('tB').classList.toggle('on', !bp);
+  $('tBP').classList.toggle('on', bp);
+  buildTree(keys);
+  steps = []; cursor = 0; buildLog(null); buildAxis(); renderAll();
+  $('playState').textContent = `已切换到 ${bp ? 'B+ 树' : 'B 树'}（关键字不变：${keys.length} 个）`;
+}
+function setOrder(k){
+  const keys = allKeys(T.root);
+  M = k;
+  [3, 4, 5, 6].forEach(n => $('m' + n).classList.toggle('on', n === k));
+  buildTree(keys);
+  steps = []; cursor = 0; buildLog(null); buildAxis(); renderAll();
+  $('playState').textContent = `已改成 ${k} 阶：每个结点最多 ${k - 1} 个关键字、除根外至少 ${Math.ceil(k / 2) - 1} 个`;
+}
+function initUI(){
+  $('tB').addEventListener('click', () => { pause(); setTreeType(false); });
+  $('tBP').addEventListener('click', () => { pause(); setTreeType(true); });
+  [3, 4, 5, 6].forEach(k => $('m' + k).addEventListener('click', () => { pause(); setOrder(k); }));
+  $('bIns').addEventListener('click', () => { pause(); const v = readVal('val'); if (v !== null) doInsert(v); });
+  $('bDel').addEventListener('click', () => { pause(); const v = readVal('val'); if (v !== null) doDelete(v); });
+  $('bFind').addEventListener('click', () => { pause(); const v = readVal('val'); if (v !== null) doFind(v); });
+  $('bRange').addEventListener('click', () => {
+    pause();
+    const lo = readVal('lo'), hi = readVal('hi');
+    if (lo === null || hi === null) return;
+    doRange(Math.min(lo, hi), Math.max(lo, hi));
+  });
+  $('val').addEventListener('keydown', e => {
+    if (e.key === 'Enter'){ pause(); const v = readVal('val'); if (v !== null) doInsert(v); }
+  });
+  $('bClear').addEventListener('click', () => {
+    pause(); buildTree([]); steps = []; cursor = 0; buildLog(null); buildAxis(); renderAll();
+    $('playState').textContent = '已清空';
+  });
+  $('spd').addEventListener('input', e => { speed = +e.target.value || 1.2; });
+  $('bPrev').addEventListener('click', () => { pause(); goto(cursor - 1); });
+  $('bNext').addEventListener('click', () => { pause(); goto(cursor + 1); });
+  $('bReset').addEventListener('click', () => { pause(); goto(0); $('playState').textContent = '已回到开头'; });
+  $('bPlay').addEventListener('click', () => { playing ? pause() : play(); });
+  $('bDemo').addEventListener('click', () => { pause(); goto(0); play(); });
+
+  $('pSeq').addEventListener('click', () => {
+    pause(); buildTree([]); steps = []; cursor = 0; buildLog(null); buildAxis(); renderAll();
+    runOps([1,2,3,4,5,6,7,8,9].map(v => ({ kind:'ins', v })), '顺序插入 1~9：看根结点怎么分裂、树怎么长高');
+  });
+  $('pRnd').addEventListener('click', () => {
+    pause();
+    const pool = [];
+    while (pool.length < 10){ const v = 1 + Math.floor(Math.random() * 99); if (pool.indexOf(v) < 0) pool.push(v); }
+    buildTree(pool);
+    steps = []; cursor = 0; buildLog(null); buildAxis(); renderAll();
+    $('playState').textContent = `已随机生成 ${pool.length} 个关键字：${pool.join(' ')}（可直接试删除 / 范围查询）`;
+  });
+  $('pSplit').addEventListener('click', () => {
+    pause(); buildTree([]); steps = []; cursor = 0; buildLog(null); buildAxis(); renderAll();
+    runOps([10,20,30,40,50,60,70,80].map(v => ({ kind:'ins', v })), '插入 8 个递增关键字：结点塞满就分裂');
+  });
+  $('pDel').addEventListener('click', () => {
+    pause();
+    buildTree([10,20,30,40,50,60,70,80,90]);
+    steps = []; cursor = 0; buildLog(null); buildAxis(); renderAll();
+    runOps([10,20,30,40].map(v => ({ kind:'del', v })), '连续删除最小的几个关键字：先“借”再“合并”，观察下溢修复');
+  });
+
+  document.addEventListener('keydown', e => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'select') return;
+    if (e.key === ' '){ e.preventDefault(); playing ? pause() : play(); }
+    else if (e.key === 'ArrowLeft'){ e.preventDefault(); pause(); goto(cursor - 1); }
+    else if (e.key === 'ArrowRight'){ e.preventDefault(); pause(); goto(cursor + 1); }
+  });
+  window.addEventListener('resize', () => renderAll());
+
+  initPanZoom();
+  speed = +$('spd').value || 1.2;
+  buildTree([10, 20, 30, 40, 50, 60, 70]);
+  steps = []; cursor = 0; buildLog(null); buildCode('ins'); buildAxis(); renderAll();
+  $('playState').textContent = '就绪：可插入 / 删除 / 查找 / 范围查询，或点预设场景';
+}
+if (typeof document !== 'undefined') initUI();
+</script>
+</body>
+</html>
